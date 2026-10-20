@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="config.js"></script>
+</head>
+<body>
+<title>Fanta X Factor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Instrument+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: sticky stage header + tab bar, one content column; tables scroll inside their own box */
+:root{
+  --bg:#F4F3F8; --surface:#FFFFFF; --ink:#17141F; --muted:#686277; --line:#DEDBE7; --chip:#ECEAF3;
+  --accent:#D3143F; --accent-ink:#FFFFFF; --gold:#A87900; --good:#17744B; --warn:#9A5B00;
+  --display:"Anton","Impact","Arial Narrow",sans-serif;
+  --body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#100E16; --surface:#1A1722; --ink:#F1EFF6; --muted:#A09AAF; --line:#2E2A3A; --chip:#25202F;
+  --accent:#FF4D6D; --accent-ink:#16050A; --gold:#F2C14E; --good:#4CC38A; --warn:#F0A848; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#100E16; --surface:#1A1722; --ink:#F1EFF6; --muted:#A09AAF; --line:#2E2A3A; --chip:#25202F;
+  --accent:#FF4D6D; --accent-ink:#16050A; --gold:#F2C14E; --good:#4CC38A; --warn:#F0A848; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.wrap{max-width:1040px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header.top{padding-block:22px 10px}
+.brand{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
+h1{font-family:var(--display);font-weight:400;font-size:clamp(34px,7vw,56px);line-height:.95;margin:0;letter-spacing:.01em;text-transform:uppercase}
+h1 .x{color:var(--accent);display:inline-block;transform:scale(1.15);margin:0 .06em}
+.sub{color:var(--muted);font-size:13px;margin-top:6px}
+.meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px}
+.status{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:var(--chip);color:var(--muted)}
+.status i{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.status.ok i{background:var(--good)} .status.warn i{background:var(--warn)}
+nav.tabs{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+nav.tabs .wrap{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+nav.tabs button{font:600 14px var(--body);background:none;border:0;color:var(--muted);padding:12px 12px 10px;border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap}
+nav.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+main{padding-block:22px 60px}
+section.view{display:flex;flex-direction:column;gap:22px}
+h2{font-family:var(--display);font-weight:400;font-size:26px;text-transform:uppercase;letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font-size:15px;margin:0;font-weight:700}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:600}
+.muted{color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
+.stack{display:flex;flex-direction:column;gap:12px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.grid2>*{min-width:0}
+button.btn{font:600 14px var(--body);border-radius:8px;padding:9px 14px;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+button.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.btn.ghost{background:none}
+button.btn.danger{color:var(--accent);border-color:var(--accent);background:none}
+button:disabled,select:disabled,input:disabled,textarea:disabled{opacity:.5;cursor:not-allowed}
+button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+select,input,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:7px 9px;max-width:100%}
+select{min-width:0;width:100%}
+textarea{width:100%;min-height:200px;resize:vertical;line-height:1.5}
+input[type=number]{width:72px;font-variant-numeric:tabular-nums}
+.empty{border:1px dashed var(--line);border-radius:10px;padding:22px;text-align:center;color:var(--muted)}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:9px 11px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right}
+td.tot{font-weight:700}
+tr.me td{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border-radius:999px;padding:3px 10px;font-size:13px;white-space:nowrap}
+.chip.out{text-decoration:line-through;color:var(--muted)}
+.chip.xp{background:color-mix(in srgb,var(--gold) 20%,transparent)}
+.pill{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:999px}
+.pill.in{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
+.pill.out{background:var(--chip);color:var(--muted)}
+.pill.final{background:color-mix(in srgb,var(--gold) 22%,transparent);color:var(--gold)}
+.pill.lock{background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent)}
+/* leaderboard */
+.board{display:flex;flex-direction:column;gap:8px}
+.lead{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;cursor:pointer;text-align:left;font:inherit;color:inherit;width:100%}
+.lead .pos{font-family:var(--display);font-size:30px;line-height:1;color:var(--muted)}
+.lead.p1 .pos{color:var(--gold)}
+.lead .nm{font-weight:700;font-size:16px}
+.lead .bd{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px;color:var(--muted)}
+.lead .score{font-family:var(--display);font-size:30px;line-height:1;font-variant-numeric:tabular-nums}
+.lead .score small{font-family:var(--body);font-size:11px;color:var(--muted);display:block;text-align:right;letter-spacing:.06em;text-transform:uppercase}
+.lead.me{border-color:var(--accent)}
+.bar{height:4px;border-radius:2px;background:var(--chip);margin-top:6px;overflow:hidden}
+.bar b{display:block;height:100%;background:var(--accent)}
+/* draft */
+.turn{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline}
+.turn .who{font-family:var(--display);font-size:30px;text-transform:uppercase;line-height:1}
+.pickgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+.pickgrid button{font:600 14px var(--body);text-align:left;padding:11px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.pickgrid button:hover:not(:disabled){border-color:var(--accent)}
+.order{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.order .chip b{font-variant-numeric:tabular-nums;color:var(--accent)}
+.rounds{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.rounds>*{min-width:0}
+.slot{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
+.slot:last-child{border-bottom:0}
+.slot.now{color:var(--accent);font-weight:700}
+.slot span:last-child{text-align:right;min-width:0;overflow-wrap:anywhere}
+.pform{display:grid;grid-template-columns:minmax(110px,1fr) repeat(3,minmax(120px,1.4fr)) 60px;gap:8px;align-items:center}
+.pform>*{min-width:0}
+.pform .h{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600}
+.ok{color:var(--good);font-weight:700}
+.notice{border-left:3px solid var(--gold);padding:8px 12px;background:var(--surface);border-radius:0 8px 8px 0;font-size:14px}
+.rules{max-width:68ch}
+.rules li{margin-bottom:6px}
+.confirm{display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap}
+details summary{cursor:pointer;font-weight:600}
+@media (max-width:640px){
+  .pform{grid-template-columns:1fr 1fr}
+  .pform .h{display:none}
+  .pform .pn{grid-column:1/-1;font-weight:700;margin-top:8px}
+  .pform .pe{grid-column:1/2}
+}
+@media (prefers-reduced-motion:no-preference){.bar b{transition:width .4s ease}}
+</style>
+
+<header class="top"><div class="wrap brand">
+  <div>
+    <h1>Fanta <span class="x">X</span> Factor</h1>
+    <div class="sub">Il fantagioco tra amici: squadre, X Pass di Giorgia, ballottaggi e classifica live.</div>
+  </div>
+  <div class="meta">
+    <label class="row" style="gap:6px"><span class="label">Io sono</span><select id="me" style="width:auto"></select></label>
+    <span id="sync" class="status"><i></i><span>Connessione…</span></span>
+  </div>
+</div></header>
+<nav class="tabs" aria-label="Sezioni"><div class="wrap" id="tabs" role="tablist"></div></nav>
+<main><div class="wrap" id="app"></div></main>
+
+<script>
+(function(){
+const DEF_SINGERS=["Alice Fregoso","Scraffs","Giacomo Calò","Mad-Dog","Camilla","Manu","Veronica Bruganelli","ALÌA","Alex Fontana","Patrizia","Le Distanze","Lenanie (Danny)"];
+const DEF_XPASS=["Matteo Markus “Teo” Bok","Neyja","Giorgia Cappelletti","Camilla Tradardi (Rakatoum)","Niccolò Riolfo","Chiara Ludovica Giorgi (Claude)","D!PS","Timothée Bonnardel","Angelo Caianiello","Benedetta “Kora” Cornalba","Sofia Sole Cammarota","Elia Ballancin","Nicola Trois","Lorena Luca","Rawstrings","Vito Damiano","Christian Cordone"];
+const ROUNDS=4;
+const TABS=[["classifica","Classifica"],["squadre","Fase 1 · Squadre"],["xpass","Fase 2 · X Pass"],["puntate","Fase 3 · Puntate"],["finale","Finale"],["setup","Setup"],["regole","Regole"]];
+
+function defaultState(){return{v:1,
+  config:{singers:DEF_SINGERS.map((n,i)=>({id:"s"+(i+1),name:n})),xpass:DEF_XPASS.map((n,i)=>({id:"x"+(i+1),name:n})),players:[],
+    rankPoints:[17,14,10,9,8,7,6,5,4,3,2,1,0],finalBonus:[10,7,5,3],ballotPts:1.5,elimPts:2,xpassPts:2},
+  draft:{order1:[],order3:[],picks:[]},xpassPicks:{},xpassWinner:null,episodes:{},finalPreds:{},finalRank:[]};}
+
+let S=defaultState(), ready=false, mode="connecting", readOnly=false, docRef=null, tab="classifica", openPlayer=null, armed=null;
+let pendingRender=false, writeChain=Promise.resolve();
+const LS_KEY="fxf-local-state", ME_KEY="fxf-me";
+function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+let me=lsGet(ME_KEY)||"";
+
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const isObj=v=>v&&typeof v==="object"&&!Array.isArray(v);
+const clone=v=>JSON.parse(JSON.stringify(v));
+function merge(t,p){for(const k in p){if(isObj(p[k])&&isObj(t[k]))merge(t[k],p[k]);else t[k]=clone(p[k]);}return t;}
+const uid=p=>p+Math.random().toString(36).slice(2,8);
+const fmt=n=>(Math.round(n*10)/10).toLocaleString("it-IT");
+function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const r=new Uint32Array(1);crypto.getRandomValues(r);const j=r[0]%(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+/* ---------- persistence ---------- */
+function save(patch){
+  merge(S,patch); render();
+  if(mode==="local"){lsSet(LS_KEY,JSON.stringify(S));return;}
+  if(!docRef||readOnly)return;
+  writeChain=writeChain.then(()=>docRef.update(patch)).catch(e=>{
+    if(e&&e.code==="permission-denied"){readOnly=true;setSync();render();}
+    else console.warn(e);
+  });
+}
+function replaceAll(next){
+  S=next; render();
+  if(mode==="local"){lsSet(LS_KEY,JSON.stringify(S));return;}
+  if(docRef&&!readOnly)writeChain=writeChain.then(()=>docRef.set(next)).catch(e=>console.warn(e));
+}
+function normalize(d){const b=defaultState();merge(b,d||{});return b;}
+
+function boot(){
+  render();
+  const cfg=window.FXF_FIREBASE;
+  if(!cfg||!cfg.apiKey||!window.firebase){startLocal();return;}
+  let gameId="main";
+  try{const q=new URLSearchParams(location.search).get("partita");if(q&&/^[A-Za-z0-9_-]{1,60}$/.test(q))gameId=q;}catch(e){}
+  firebase.initializeApp(cfg);
+  const fs=firebase.firestore();
+  const ref=fs.collection("partite").doc(gameId);
+  docRef={update:p=>ref.set(p,{merge:true}),set:d=>ref.set(d)};
+  mode="shared";setSync();
+  ref.onSnapshot(snap=>{
+    if(!snap.exists){
+      if(!ready){ready=true;S=defaultState();render();ref.set(S).catch(e=>console.warn(e));}
+      else{ready=true;render();}
+      return;
+    }
+    S=normalize(snap.data());ready=true;scheduleRender();
+  },err=>{console.warn(err);if(!ready)startLocal();});
+}
+function startLocal(){
+  mode="local";readOnly=false;
+  const raw=lsGet(LS_KEY);
+  try{S=raw?normalize(JSON.parse(raw)):defaultState();}catch(e){S=defaultState();}
+  ready=true;setSync();render();
+}
+function setSync(){
+  const el=document.getElementById("sync");
+  const [cls,txt]=mode==="shared"?(readOnly?["warn","Sola lettura"]:["ok","Partita condivisa"]):mode==="local"?["warn","Solo su questo dispositivo"]:["","Connessione…"];
+  el.className="status "+cls;el.lastElementChild.textContent=txt;
+}
+function scheduleRender(){
+  const a=document.activeElement;
+  if(a&&a.matches&&a.matches("textarea,input")){pendingRender=true;return;}
+  render();
+}
+document.addEventListener("focusout",()=>{if(pendingRender){setTimeout(()=>{const a=document.activeElement;if(!(a&&a.matches&&a.matches("textarea,input"))){pendingRender=false;render();}},0);}});
+
+/* ---------- derived game state ---------- */
+function derive(){
+  const C=S.config, players=C.players||[], singers=C.singers||[], xp=C.xpass||[];
+  const names={};singers.forEach(s=>names[s.id]=s.name);xp.forEach(s=>names[s.id]=s.name);
+  const nameOf=id=>names[id]||"—";
+  const eps=Object.entries(S.episodes||{}).filter(([,v])=>v).map(([id,v])=>Object.assign({id},v)).sort((a,b)=>a.n-b.n);
+  const elimOrder=[];eps.forEach(e=>(e.elim||[]).forEach(s=>{if(s&&!elimOrder.includes(s))elimOrder.push(s);}));
+  const contestants=singers.map(s=>s.id).concat(S.xpassWinner?[S.xpassWinner]:[]);
+  const N=singers.length+1;
+  const finalRank=(S.finalRank||[]).filter(Boolean);
+  const rp=i=>Number((C.rankPoints||[])[i-1])||0;
+  function place(id){
+    const f=finalRank.indexOf(id);if(f>=0)return{pos:f+1,state:"final"};
+    const e=elimOrder.indexOf(id);if(e>=0)return{pos:N-e,state:"out"};
+    return{pos:N-elimOrder.length,state:"in"};
+  }
+  const picks=(S.draft.picks||[]).filter(p=>p&&p.p&&p.s);
+  const owner={};picks.forEach(p=>owner[p.s]=p.p);
+  let swap=null;const first=elimOrder[0];
+  if(first&&S.xpassWinner&&owner[first]&&(S.xpassPicks||{})[owner[first]]===S.xpassWinner)swap={owner:owner[first],out:first,in:S.xpassWinner};
+  if(swap)owner[swap.in]=swap.owner;
+  const teamOf=pid=>picks.filter(p=>p.p===pid).map(p=>p.s);
+  const effTeam=pid=>teamOf(pid).map(s=>swap&&swap.owner===pid&&s===swap.out?swap.in:s);
+  const activeAt=n=>{const out=new Set();eps.filter(e=>e.n<n).forEach(e=>(e.elim||[]).forEach(s=>s&&out.add(s)));return contestants.filter(s=>!out.has(s));};
+  const active=contestants.filter(s=>!elimOrder.includes(s));
+  const scores=players.map(p=>{
+    const team=effTeam(p.id).map(s=>{const pl=place(s);return Object.assign({s,pts:rp(pl.pos)},pl);});
+    const teamPts=team.reduce((a,t)=>a+t.pts,0);
+    const epRows=eps.map(e=>{
+      const pr=(e.preds||{})[p.id]||{};const b=(pr.b||[]).filter(Boolean);
+      const ballot=(e.ballot||[]).filter(Boolean), el=(e.elim||[]).filter(Boolean);
+      const bh=ballot.length?b.filter(x=>ballot.includes(x)).length:0;
+      const eh=!!(el.length&&pr.e&&el.includes(pr.e));
+      return{ep:e,b,e:pr.e||null,bh,eh,bp:bh*(+C.ballotPts||0),ep_:eh?(+C.elimPts||0):0,done:ballot.length>0||el.length>0};
+    });
+    const ballotPts=epRows.reduce((a,r)=>a+r.bp,0), elimPts=epRows.reduce((a,r)=>a+r.ep_,0);
+    const xpPick=(S.xpassPicks||{})[p.id]||null;
+    const xpassPts=S.xpassWinner&&xpPick===S.xpassWinner?(+C.xpassPts||0):0;
+    const fp=(S.finalPreds||{})[p.id]||[];
+    const finalHits=[0,1,2,3].map(i=>!!(finalRank[i]&&fp[i]===finalRank[i]));
+    const finalPts=finalHits.reduce((a,h,i)=>a+(h?(+(C.finalBonus||[])[i]||0):0),0);
+    const total=teamPts+ballotPts+elimPts+xpassPts+finalPts;
+    return{p,team,teamPts,epRows,ballotPts,elimPts,xpassPts,xpPick,fp,finalHits,finalPts,total};
+  });
+  const ranked=scores.slice().sort((a,b)=>b.total-a.total||a.p.name.localeCompare(b.p.name));
+  let lastT=null,lastPos=0;ranked.forEach((r,i)=>{if(r.total!==lastT){lastPos=i+1;lastT=r.total;}r.rank=lastPos;});
+  return{C,players,singers,xp,nameOf,eps,elimOrder,contestants,active,N,finalRank,rp,place,picks,owner,swap,teamOf,effTeam,activeAt,scores,ranked};
+}
+
+function draftInfo(D){
+  const P=D.players.length, ids=D.players.map(p=>p.id);
+  const valid=o=>o&&o.length===P&&ids.every(id=>o.includes(id));
+  const o1=valid(S.draft.order1)?S.draft.order1:null, o3=valid(S.draft.order3)?S.draft.order3:null;
+  const seq=[o1,o1&&o1.slice().reverse(),o3,o3&&o3.slice().reverse()];
+  const taken=new Set(D.picks.map(p=>p.s));
+  const avail=D.singers.filter(s=>!taken.has(s.id));
+  const i=D.picks.length, round=P?Math.floor(i/P):0, slot=P?i%P:0;
+  let state="pick",who=null;
+  if(!P)state="noplayers";
+  else if(round>=ROUNDS||!avail.length)state="done";
+  else if(!seq[round])state=round<2?"draw1":"draw3";
+  else who=seq[round][slot];
+  return{P,o1,o3,seq,avail,i,round,slot,state,who};
+}
+
+/* ---------- small builders ---------- */
+function options(list,sel,exclude,D,placeholder){
+  const ex=new Set((exclude||[]).filter(Boolean));const ids=list.slice();
+  if(sel&&!ids.includes(sel))ids.unshift(sel);
+  return `<option value="">${esc(placeholder||"—")}</option>`+ids.filter(id=>!ex.has(id)||id===sel).map(id=>`<option value="${esc(id)}"${id===sel?" selected":""}>${esc(D.nameOf(id))}</option>`).join("");
+}
+const W=()=>readOnly?" disabled":"";
+function chip(D,id,extra){const pl=D.place(id);const cls=pl.state==="out"?" out":"";const isX=id===S.xpassWinner?" xp":"";return `<span class="chip${cls}${isX}">${esc(D.nameOf(id))}${extra||""}</span>`;}
+function pName(D,id){const p=D.players.find(x=>x.id===id);return p?p.name:"—";}
+function emptyPlayers(){return `<div class="empty">Nessun partecipante ancora. Aggiungi i nomi degli amici in <button class="btn ghost" data-act="goto" data-tab="setup">Setup</button></div>`;}
+
+/* ---------- views ---------- */
+function vClassifica(D){
+  if(!D.players.length)return `<section class="view"><h2>Classifica</h2>${emptyPlayers()}${vSingers(D)}</section>`;
+  const max=Math.max(1,...D.ranked.map(r=>r.total));
+  const board=D.ranked.map(r=>`<button class="lead${r.rank===1&&r.total>0?" p1":""}${r.p.id===me?" me":""}" data-act="player" data-id="${r.p.id}" aria-expanded="${openPlayer===r.p.id}">
+      <span class="pos">${r.rank}</span>
+      <span><span class="nm">${esc(r.p.name)}</span>
+        <span class="bd"><span>Squadra ${fmt(r.teamPts)}</span><span>Ballottaggi ${fmt(r.ballotPts)}</span><span>Eliminati ${fmt(r.elimPts)}</span><span>X Pass ${fmt(r.xpassPts)}</span><span>Finale ${fmt(r.finalPts)}</span></span>
+        <span class="bar"><b style="width:${Math.max(0,r.total/max*100)}%"></b></span></span>
+      <span class="score">${fmt(r.total)}<small>punti</small></span></button>
+      ${openPlayer===r.p.id?playerDetail(D,r):""}`).join("");
+  const epCols=D.eps.map(e=>`<th class="num">P${e.n}</th>`).join("");
+  const grid=D.ranked.map(r=>`<tr class="${r.p.id===me?"me":""}"><td>${r.rank}</td><td><b>${esc(r.p.name)}</b></td>${r.epRows.map(x=>`<td class="num">${x.done?fmt(x.bp+x.ep_):"·"}</td>`).join("")}<td class="num">${fmt(r.teamPts)}</td><td class="num">${fmt(r.xpassPts)}</td><td class="num">${fmt(r.finalPts)}</td><td class="num tot">${fmt(r.total)}</td></tr>`).join("");
+  return `<section class="view">
+    <div class="stack"><h2>Classifica</h2><div class="muted">Tocca un nome per vedere la sua griglia punteggio.</div></div>
+    <div class="board">${board}</div>
+    <div class="stack"><h2>Griglia punteggi</h2>
+      <div class="muted">Colonne P1, P2…: punti ballottaggio + eliminazione di ogni puntata. Squadra: punti classifica dei cantanti (per chi è ancora in gara contano i punti minimi garantiti).</div>
+      <div class="tbl"><table><thead><tr><th>#</th><th>Giocatore</th>${epCols}<th class="num">Squadra</th><th class="num">X Pass</th><th class="num">Finale</th><th class="num">Totale</th></tr></thead><tbody>${grid}</tbody></table></div></div>
+    ${vSingers(D)}
+  </section>`;
+}
+function playerDetail(D,r){
+  const team=r.team.length?r.team.map(t=>`<tr><td>${esc(D.nameOf(t.s))}${D.swap&&D.swap.in===t.s&&D.swap.owner===r.p.id?` <span class="pill final">X Pass</span>`:""}</td><td><span class="pill ${t.state}">${t.state==="in"?"in gara":t.state==="out"?"eliminato":"finale"}</span></td><td class="num">${t.state==="in"?"≥ ":""}${t.pos}°</td><td class="num">${fmt(t.pts)}</td></tr>`).join(""):`<tr><td colspan="4" class="muted">Squadra non ancora scelta</td></tr>`;
+  const eps=r.epRows.length?r.epRows.map(x=>`<tr><td>Puntata ${x.ep.n}</td><td>${x.b.length?x.b.map(s=>esc(D.nameOf(s))).join(", "):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.bp):"·"}</td><td>${x.e?esc(D.nameOf(x.e)):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.ep_):"·"}</td></tr>`).join(""):`<tr><td colspan="5" class="muted">Nessuna puntata ancora</td></tr>`;
+  return `<div class="card stack" style="margin-bottom:6px">
+    <div class="grid2">
+      <div class="stack"><span class="label">Squadra</span><div class="tbl"><table><thead><tr><th>Cantante</th><th>Stato</th><th class="num">Pos.</th><th class="num">Punti</th></tr></thead><tbody>${team}</tbody></table></div></div>
+      <div class="stack"><span class="label">Bonus</span>
+        <div>X Pass scelto: <b>${r.xpPick?esc(D.nameOf(r.xpPick)):"—"}</b> ${S.xpassWinner?(r.xpassPts?`<span class="ok">+${fmt(r.xpassPts)}</span>`:"· 0"):""}</div>
+        <div>Pronostico finale: ${r.fp.filter(Boolean).length?r.fp.map((s,i)=>s?`${i+1}° ${esc(D.nameOf(s))}${r.finalHits[i]?` <span class="ok">+${fmt(+D.C.finalBonus[i]||0)}</span>`:""}`:"").filter(Boolean).join(" · "):"—"}</div>
+      </div>
+    </div>
+    <div class="stack"><span class="label">Puntate</span><div class="tbl"><table><thead><tr><th>Puntata</th><th>Ballottaggio previsto</th><th class="num">Punti</th><th>Eliminato previsto</th><th class="num">Punti</th></tr></thead><tbody>${eps}</tbody></table></div></div>
+  </div>`;
+}
+function vSingers(D){
+  if(!D.contestants.length)return "";
+  const rows=D.contestants.map(id=>{const pl=D.place(id);return{id,pl,pts:D.rp(pl.pos)};})
+    .sort((a,b)=>a.pl.pos-b.pl.pos||D.nameOf(a.id).localeCompare(D.nameOf(b.id)));
+  return `<div class="stack"><h2>Classifica cantanti</h2>
+    <div class="muted">Gli eliminati occupano le ultime posizioni in ordine di eliminazione (il primo eliminato è ${D.N}°). Chi è in gara mostra la posizione minima garantita.</div>
+    <div class="tbl"><table><thead><tr><th class="num">Pos.</th><th>Cantante</th><th>Stato</th><th>Squadra</th><th class="num">Punti</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td class="num">${r.pl.state==="in"?"≥ ":""}${r.pl.pos}°</td><td>${esc(D.nameOf(r.id))}${r.id===S.xpassWinner?` <span class="pill final">X Pass</span>`:""}</td><td><span class="pill ${r.pl.state}">${r.pl.state==="in"?"in gara":r.pl.state==="out"?"eliminato":"finale"}</span></td><td>${D.owner[r.id]?esc(pName(D,D.owner[r.id])):"<span class=muted>libero</span>"}</td><td class="num">${fmt(r.pts)}</td></tr>`).join("")}
+    </tbody></table></div></div>`;
+}
+
+function vSquadre(D){
+  if(!D.players.length)return `<section class="view"><h2>Fase 1 · Scegli la tua squadra</h2>${emptyPlayers()}</section>`;
+  const I=draftInfo(D);
+  let turn="";
+  if(I.state==="draw1")turn=`<div class="card stack"><h3>Primo giro: estrazione a sorte</h3><div class="muted">Il primo estratto sceglie per primo, poi il secondo, e così via.</div><div><button class="btn primary" data-act="draw" data-r="1"${W()}>Estrai l'ordine del 1° giro</button></div></div>`;
+  else if(I.state==="draw3")turn=`<div class="card stack"><h3>Terzo giro: nuova estrazione</h3><div class="muted">Si rifà il sorteggio. Il 4° giro partirà dall'ultimo del 3°.</div><div><button class="btn primary" data-act="draw" data-r="3"${W()}>Estrai l'ordine del 3° giro</button></div></div>`;
+  else if(I.state==="done")turn=`<div class="card"><h3>Draft completato</h3><div class="muted">${I.avail.length?`${I.avail.length} cantanti restano liberi.`:"Tutti i cantanti sono stati assegnati."}</div></div>`;
+  else turn=`<div class="card stack"><div class="turn"><span class="label">${I.round+1}° giro · scelta ${I.slot+1} di ${I.P}</span><span class="who">Tocca a ${esc(pName(D,I.who))}</span></div>
+    <div class="pickgrid">${I.avail.map(s=>`<button data-act="pick" data-s="${s.id}" data-p="${I.who}"${W()}>${esc(s.name)}</button>`).join("")}</div></div>`;
+  const need=I.P*ROUNDS, have=D.singers.length;
+  const warn=need>have?`<div class="notice">Con ${I.P} partecipanti e 4 giri servirebbero ${need} cantanti, ma ce ne sono ${have}: il draft si ferma quando la lista finisce.</div>`:"";
+  const rounds=[0,1,2,3].map(r=>{
+    const o=I.seq[r];const lab=["1° giro · estrazione","2° giro · ordine inverso","3° giro · nuova estrazione","4° giro · ordine inverso"][r];
+    const body=o?o.map((pid,k)=>{const idx=r*I.P+k;const pk=D.picks[idx];const now=idx===I.i&&I.state==="pick";return `<div class="slot${now?" now":""}"><span>${k+1}. ${esc(pName(D,pid))}</span><span>${pk?esc(D.nameOf(pk.s)):now?"sta scegliendo…":"—"}</span></div>`;}).join(""):`<div class="muted" style="font-size:14px">${r===1?"Dopo l'estrazione del 1° giro":r===3?"Dopo l'estrazione del 3° giro":"Ordine da estrarre"}</div>`;
+    return `<div class="card stack"><span class="label">${lab}</span><div>${body}</div></div>`;
+  }).join("");
+  const teams=D.players.map(p=>`<div class="card stack"><h3>${esc(p.name)}</h3><div class="row" style="gap:6px">${D.teamOf(p.id).length?D.effTeam(p.id).map(s=>chip(D,s)).join(""):`<span class="muted">Ancora nessun cantante</span>`}</div></div>`).join("");
+  const undo=D.picks.length?`<button class="btn" data-act="undo"${W()}>Annulla ultima scelta</button>`:"";
+  const redraw=(I.o1&&D.picks.length===0)?`<button class="btn ghost" data-act="draw" data-r="1"${W()}>Riestrai 1° giro</button>`:(I.o3&&D.picks.length===2*I.P)?`<button class="btn ghost" data-act="draw" data-r="3"${W()}>Riestrai 3° giro</button>`:"";
+  return `<section class="view"><div class="stack"><h2>Fase 1 · Scegli la tua squadra</h2><div class="muted">Ogni cantante scelto esce dalla lista: nessun cantante può stare in due squadre.</div></div>
+    ${warn}${turn}<div class="row">${undo}${redraw}</div>
+    <div class="rounds">${rounds}</div>
+    <div class="stack"><h2>Squadre</h2><div class="grid2">${teams}</div></div></section>`;
+}
+
+function vXpass(D){
+  if(!D.players.length)return `<section class="view"><h2>Fase 2 · X Pass di Giorgia</h2>${emptyPlayers()}</section>`;
+  const ids=D.xp.map(x=>x.id);
+  const rows=D.players.map(p=>{const pick=(S.xpassPicks||{})[p.id]||"";const hit=S.xpassWinner&&pick===S.xpassWinner;
+    return `<tr class="${p.id===me?"me":""}"><td><b>${esc(p.name)}</b></td><td style="min-width:220px"><select data-act="xp-pick" data-p="${p.id}"${W()}>${options(ids,pick,[],D,"Scegli…")}</select></td><td class="num">${S.xpassWinner?(hit?`<span class="ok">+${fmt(+D.C.xpassPts||0)}</span>`:"0"):"·"}</td></tr>`;}).join("");
+  let swapTxt="";
+  if(S.xpassWinner){
+    const first=D.elimOrder[0];
+    if(!first)swapTxt=`Quando ci sarà il primo eliminato delle live, se il suo proprietario ha indovinato l'X Pass, ${esc(D.nameOf(S.xpassWinner))} entrerà nella sua squadra al suo posto.`;
+    else if(D.swap)swapTxt=`Primo eliminato: <b>${esc(D.nameOf(first))}</b>. ${esc(pName(D,D.swap.owner))} aveva indovinato l'X Pass, quindi <b>${esc(D.nameOf(D.swap.in))}</b> lo sostituisce nella sua squadra.`;
+    else swapTxt=`Primo eliminato: <b>${esc(D.nameOf(first))}</b>${D.owner[first]?` (squadra di ${esc(pName(D,D.owner[first]))})`:""}. Nessuna sostituzione: il proprietario non aveva indovinato l'X Pass.`;
+  }
+  return `<section class="view"><div class="stack"><h2>Fase 2 · X Pass di Giorgia</h2><div class="muted">Ognuno indovina chi sarà l'X Pass. Chi indovina prende ${fmt(+D.C.xpassPts||0)} punti bonus.</div></div>
+    <div class="tbl"><table><thead><tr><th>Giocatore</th><th>X Pass previsto</th><th class="num">Bonus</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="card stack"><h3>X Pass ufficiale</h3><div class="muted">Da compilare quando Giorgia lo annuncia: entra in gara come ${D.N}° concorrente.</div>
+      <div style="max-width:360px"><select id="xp-winner" data-act="xp-winner"${W()}>${options(ids,S.xpassWinner||"",[],D,"Non ancora annunciato")}</select></div>
+      ${swapTxt?`<div class="notice">${swapTxt}</div>`:""}</div></section>`;
+}
+
+function vPuntate(D){
+  const add=`<button class="btn primary" data-act="ep-add"${W()}>Aggiungi puntata ${D.eps.length?D.eps[D.eps.length-1].n+1:1}</button>`;
+  if(!D.players.length)return `<section class="view"><h2>Fase 3 · Puntate live</h2>${emptyPlayers()}</section>`;
+  const cards=D.eps.slice().reverse().map(e=>{
+    const act=D.activeAt(e.n);const ballot=e.ballot||[];const elim=e.elim||[];const lock=!!e.locked;
+    const sc=D.scores;
+    const preds=D.players.map(p=>{const pr=(e.preds||{})[p.id]||{};const b=pr.b||[];const r=sc.find(x=>x.p.id===p.id).epRows.find(x=>x.ep.id===e.id);
+      const dis=(lock||readOnly)?" disabled":"";
+      return `<div class="pn">${esc(p.name)}</div>
+        <select data-act="pred-b" data-e="${e.id}" data-p="${p.id}" data-i="0" aria-label="${esc(p.name)} ballottaggio 1"${dis}>${options(act,b[0]||"",[b[1]],D,"Ballottaggio 1")}</select>
+        <select data-act="pred-b" data-e="${e.id}" data-p="${p.id}" data-i="1" aria-label="${esc(p.name)} ballottaggio 2"${dis}>${options(act,b[1]||"",[b[0]],D,"Ballottaggio 2")}</select>
+        <select class="pe" data-act="pred-e" data-e="${e.id}" data-p="${p.id}" aria-label="${esc(p.name)} eliminato"${dis}>${options(b.filter(Boolean),pr.e||"",[],D,"Eliminato")}</select>
+        <span class="num" style="text-align:right">${r.done?`<b>${fmt(r.bp+r.ep_)}</b>`:"·"}</span>`;}).join("");
+    return `<div class="card stack">
+      <div class="row" style="justify-content:space-between"><div class="row"><h2>Puntata ${e.n}</h2>${lock?`<span class="pill lock">Pronostici chiusi</span>`:`<span class="pill in">Pronostici aperti</span>`}</div>
+        <div class="row"><button class="btn" data-act="ep-lock" data-e="${e.id}"${W()}>${lock?"Riapri pronostici":"Chiudi pronostici"}</button>
+        ${armed==="del-"+e.id?`<span class="confirm"><span class="muted">Eliminare la puntata?</span><button class="btn danger" data-act="ep-del" data-e="${e.id}"${W()}>Sì, elimina</button><button class="btn ghost" data-act="disarm">No</button></span>`:`<button class="btn ghost" data-act="arm" data-k="del-${e.id}"${W()}>Elimina</button>`}</div></div>
+      <div class="stack"><span class="label">Pronostici · 2 al ballottaggio (${fmt(+D.C.ballotPts||0)} pt l'uno) e chi esce fra i due (${fmt(+D.C.elimPts||0)} pt)</span>
+        <div class="pform"><span class="h">Giocatore</span><span class="h">Ballottaggio 1</span><span class="h">Ballottaggio 2</span><span class="h">Eliminato</span><span class="h" style="text-align:right">Punti</span>${preds}</div></div>
+      <div class="stack" style="border-top:1px solid var(--line);padding-top:12px"><span class="label">Risultati della puntata</span>
+        <div class="grid2">
+          <div class="stack"><span class="muted" style="font-size:13px">Al ballottaggio</span><div class="row" style="flex-wrap:nowrap">
+            <select data-act="res-b" data-e="${e.id}" data-i="0" aria-label="Ballottaggio reale 1"${W()}>${options(act,ballot[0]||"",[ballot[1]],D,"Cantante 1")}</select>
+            <select data-act="res-b" data-e="${e.id}" data-i="1" aria-label="Ballottaggio reale 2"${W()}>${options(act,ballot[1]||"",[ballot[0]],D,"Cantante 2")}</select></div></div>
+          <div class="stack"><span class="muted" style="font-size:13px">Eliminati, in ordine di uscita</span><div class="row" style="flex-wrap:nowrap">
+            <select data-act="res-e" data-e="${e.id}" data-i="0" aria-label="Primo eliminato"${W()}>${options(act,elim[0]||"",[elim[1]],D,"1° eliminato")}</select>
+            <select data-act="res-e" data-e="${e.id}" data-i="1" aria-label="Secondo eliminato"${W()}>${options(act,elim[1]||"",[elim[0]],D,"2° eliminato (se c'è)")}</select></div></div>
+        </div></div></div>`;}).join("");
+  return `<section class="view"><div class="stack"><h2>Fase 3 · Puntate live</h2><div class="muted">Prima della live ognuno indica i 2 cantanti al ballottaggio e chi tra i due sarà eliminato. Chiudi i pronostici quando inizia la puntata, poi inserisci i risultati.</div></div>
+    <div>${add}</div>${cards||`<div class="empty">Nessuna puntata ancora. Aggiungi la prima quando partono le live.</div>`}</section>`;
+}
+
+function vFinale(D){
+  if(!D.players.length)return `<section class="view"><h2>Finale</h2>${emptyPlayers()}</section>`;
+  const pool=D.active;const fb=D.C.finalBonus||[];
+  const head=[0,1,2,3].map(i=>`<th>${i+1}° (+${fmt(+fb[i]||0)})</th>`).join("");
+  const rows=D.players.map(p=>{const fp=(S.finalPreds||{})[p.id]||[];const r=D.scores.find(x=>x.p.id===p.id);
+    return `<tr class="${p.id===me?"me":""}"><td><b>${esc(p.name)}</b></td>${[0,1,2,3].map(i=>`<td style="min-width:170px"><select data-act="final-pred" data-p="${p.id}" data-i="${i}"${W()}>${options(pool,fp[i]||"",fp.filter((_,k)=>k!==i),D,"—")}</select>${r.finalHits[i]?` <span class="ok">✓</span>`:""}</td>`).join("")}<td class="num tot">${fmt(r.finalPts)}</td></tr>`;}).join("");
+  const fr=S.finalRank||[];const k=Math.max(4,pool.length?Math.min(pool.length,13):4);
+  const actual=Array.from({length:Math.min(k,Math.max(pool.length,4))},(_,i)=>`<label class="stack" style="gap:4px"><span class="label">${i+1}° posto</span><select data-act="final-rank" data-i="${i}"${W()}>${options(pool.concat(fr.filter(x=>x&&!pool.includes(x))),fr[i]||"",fr.filter((_,j)=>j!==i),D,"—")}</select></label>`).join("");
+  return `<section class="view"><div class="stack"><h2>Finale</h2><div class="muted">Prima dell'ultima live ognuno ipotizza la classifica finale. Bonus per ogni posizione indovinata.</div></div>
+    <div class="tbl"><table><thead><tr><th>Giocatore</th>${head}<th class="num">Bonus</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="card stack"><h3>Classifica finale ufficiale</h3><div class="muted">Da compilare dopo la finale. Fissa anche le posizioni (e i punti squadra) dei finalisti.</div>
+      <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">${actual}</div></div></section>`;
+}
+
+function vSetup(D){
+  const C=D.C;const lines=l=>(l||[]).map(x=>x.name).join("\n");
+  const started=D.picks.length>0;
+  const rp=(C.rankPoints||[]).map((v,i)=>`<label class="stack" style="gap:2px"><span class="label">${i+1}°</span><input type="number" step="0.5" id="rp-${i}" value="${esc(v)}"${W()}></label>`).join("");
+  const fb=[0,1,2,3].map(i=>`<label class="stack" style="gap:2px"><span class="label">${i+1}° posto</span><input type="number" step="0.5" id="fb-${i}" value="${esc((C.finalBonus||[])[i]??0)}"${W()}></label>`).join("");
+  return `<section class="view"><div class="stack"><h2>Setup</h2><div class="muted">Una riga per nome. Le modifiche valgono per tutti quelli che hanno aperto la partita.</div></div>
+    ${started?`<div class="notice">Il draft è già iniziato: rinominare va bene, ma togliere un nome già scelto lo toglie anche dalla squadra.</div>`:""}
+    <div class="grid2">
+      <div class="card stack"><h3>Partecipanti</h3><div class="muted" style="font-size:13px">Gli amici che giocano. Con 12 cantanti e 4 giri, 3 giocatori hanno squadre complete.</div>
+        <textarea id="ta-players" placeholder="Marco&#10;Giulia&#10;Pasquale"${W()}>${esc(lines(C.players))}</textarea>
+        <div><button class="btn primary" data-act="save-list" data-k="players"${W()}>Salva partecipanti</button></div></div>
+      <div class="card stack"><h3>Cantanti in gara</h3>
+        <textarea id="ta-singers"${W()}>${esc(lines(C.singers))}</textarea>
+        <div><button class="btn primary" data-act="save-list" data-k="singers"${W()}>Salva cantanti</button></div></div>
+      <div class="card stack"><h3>Potenziali X Pass di Giorgia</h3>
+        <textarea id="ta-xpass"${W()}>${esc(lines(C.xpass))}</textarea>
+        <div><button class="btn primary" data-act="save-list" data-k="xpass"${W()}>Salva X Pass</button></div></div>
+    </div>
+    <div class="card stack"><h3>Punteggi</h3>
+      <span class="label">Punti per posizione in classifica</span><div class="row">${rp}</div>
+      <span class="label">Bonus pronostico finale</span><div class="row">${fb}</div>
+      <div class="row">
+        <label class="stack" style="gap:2px"><span class="label">Per cantante al ballottaggio</span><input type="number" step="0.5" id="pt-ballot" value="${esc(C.ballotPts)}"${W()}></label>
+        <label class="stack" style="gap:2px"><span class="label">Eliminato indovinato</span><input type="number" step="0.5" id="pt-elim" value="${esc(C.elimPts)}"${W()}></label>
+        <label class="stack" style="gap:2px"><span class="label">X Pass indovinato</span><input type="number" step="0.5" id="pt-xpass" value="${esc(C.xpassPts)}"${W()}></label>
+      </div>
+      <div><button class="btn primary" data-act="save-points"${W()}>Salva punteggi</button></div></div>
+    <div class="card stack"><h3>Nuova partita</h3><div class="muted">Cancella squadre, pronostici e risultati. Partecipanti, cantanti e punteggi restano.</div>
+      <div>${armed==="reset"?`<span class="confirm"><span>Sicuro? Non si può annullare.</span><button class="btn danger" data-act="reset"${W()}>Sì, azzera</button><button class="btn ghost" data-act="disarm">Annulla</button></span>`:`<button class="btn danger" data-act="arm" data-k="reset"${W()}>Azzera la partita</button>`}</div></div>
+  </section>`;
+}
+
+function vRegole(D){
+  const C=D.C;
+  return `<section class="view rules"><h2>Regole</h2>
+  <div class="stack"><h3>Fase 1 · Scegli la tua squadra</h3><ul>
+    <li><b>1° giro:</b> estrazione a sorte, il primo estratto sceglie, poi il secondo e così via.</li>
+    <li><b>2° giro:</b> l'ultimo del 1° giro sceglie per primo (ordine inverso).</li>
+    <li><b>3° giro:</b> nuova estrazione, il primo estratto sceglie.</li>
+    <li><b>4° giro:</b> l'ultimo del 3° giro sceglie per primo (ordine inverso).</li>
+    <li>Un cantante scelto esce dalla lista: non può stare in più squadre.</li></ul></div>
+  <div class="stack"><h3>Fase 2 · X Pass di Giorgia</h3><ul>
+    <li>Ognuno indovina chi sarà l'X Pass: se indovina, ${fmt(+C.xpassPts||0)} punti bonus.</li>
+    <li>Se chi ha in squadra il primo eliminato delle live ha indovinato l'X Pass, l'X Pass lo sostituisce nella sua squadra.</li></ul></div>
+  <div class="stack"><h3>Fase 3 · Punteggio</h3><ul>
+    <li><b>Ballottaggio:</b> prima della live indica 2 cantanti che andranno al ballottaggio, ${fmt(+C.ballotPts||0)} punti per ognuno indovinato.</li>
+    <li><b>Eliminazione:</b> fra i tuoi due indica chi sarà eliminato, ${fmt(+C.elimPts||0)} punti se indovini.</li>
+    <li><b>Classifica:</b> ogni cantante della tua squadra porta i punti della sua posizione: ${(C.rankPoints||[]).map((v,i)=>`${i+1}° ${fmt(+v)}`).join(", ")}.</li>
+    <li>Gli eliminati occupano le ultime posizioni in ordine di eliminazione: il primo eliminato è ultimo.</li>
+    <li><b>Finale:</b> prima dell'ultima live ipotizza la classifica. Bonus: ${[0,1,2,3].map(i=>`${i+1}° ${fmt(+(C.finalBonus||[])[i]||0)}`).join(", ")} (modificabili in Setup).</li></ul></div>
+  </section>`;
+}
+
+/* ---------- render ---------- */
+function render(){
+  pendingRender=false;
+  const tabs=document.getElementById("tabs");
+  tabs.innerHTML=TABS.map(([k,l])=>`<button role="tab" aria-selected="${k===tab}" data-act="tab" data-tab="${k}">${l}</button>`).join("");
+  const app=document.getElementById("app");
+  if(!ready){app.innerHTML=`<div class="empty">Carico la partita…</div>`;return;}
+  const D=derive();
+  const meSel=document.getElementById("me");
+  meSel.innerHTML=`<option value="">—</option>`+D.players.map(p=>`<option value="${p.id}"${p.id===me?" selected":""}>${esc(p.name)}</option>`).join("");
+  const V={classifica:vClassifica,squadre:vSquadre,xpass:vXpass,puntate:vPuntate,finale:vFinale,setup:vSetup,regole:vRegole}[tab]||vClassifica;
+  app.innerHTML=(mode==="local"?`<div class="notice" style="margin-bottom:16px">Salvataggio condiviso non configurato: i dati restano solo su questo dispositivo. Inserisci la configurazione Firebase in config.js per giocare insieme.</div>`:"")+V(D);
+}
+
+/* ---------- actions ---------- */
+function syncList(old,names,prefix){
+  const pool=(old||[]).slice();
+  return names.map((n,i)=>{let k=pool.findIndex(o=>o.name===n);if(k<0&&pool[i]&&!names.includes(pool[i].name))k=i;
+    if(k>=0&&pool[k]){const o=pool[k];pool[k]=null;return{id:o.id,name:n};}return{id:uid(prefix),name:n};});
+}
+function onClick(ev){
+  const b=ev.target.closest("[data-act]");if(!b||b.tagName==="SELECT")return;
+  const a=b.dataset.act;const D=derive();
+  if(a==="tab"||a==="goto"){tab=b.dataset.tab;armed=null;try{history.replaceState(null,"","#"+tab)}catch(e){}render();window.scrollTo(0,0);return;}
+  if(a==="player"){openPlayer=openPlayer===b.dataset.id?null:b.dataset.id;render();return;}
+  if(a==="arm"){armed=b.dataset.k;render();return;}
+  if(a==="disarm"){armed=null;render();return;}
+  if(readOnly)return;
+  if(a==="draw"){const order=shuffle(D.players.map(p=>p.id));save({draft:b.dataset.r==="1"?{order1:order}:{order3:order}});return;}
+  if(a==="pick"){const I=draftInfo(D);if(I.state!=="pick"||I.who!==b.dataset.p)return;const picks=D.picks.concat([{p:I.who,s:b.dataset.s,r:I.round+1}]);save({draft:{picks}});return;}
+  if(a==="undo"){save({draft:{picks:D.picks.slice(0,-1)}});return;}
+  if(a==="ep-add"){const n=D.eps.length?D.eps[D.eps.length-1].n+1:1;save({episodes:{[uid("e")]:{n,ballot:[],elim:[],locked:false,preds:{}}}});return;}
+  if(a==="ep-lock"){const e=S.episodes[b.dataset.e];save({episodes:{[b.dataset.e]:{locked:!(e&&e.locked)}}});return;}
+  if(a==="ep-del"){armed=null;save({episodes:{[b.dataset.e]:null}});return;}
+  if(a==="reset"){armed=null;const n=defaultState();n.config=clone(S.config);replaceAll(n);return;}
+  if(a==="save-list"){
+    const k=b.dataset.k;const ta=document.getElementById("ta-"+k);
+    const names=[...new Set(ta.value.split("\n").map(s=>s.trim()).filter(Boolean))];
+    const list=syncList(S.config[k],names,{players:"p",singers:"s",xpass:"x"}[k]);
+    const patch={config:{[k]:list}};
+    if(k==="singers"){const ok=new Set(list.map(s=>s.id));patch.draft={picks:D.picks.filter(p=>ok.has(p.s))};}
+    if(k==="players"){const ok=new Set(list.map(p=>p.id));patch.draft={picks:D.picks.filter(p=>ok.has(p.p))};}
+    save(patch);return;
+  }
+  if(a==="save-points"){
+    const num=id=>{const v=parseFloat(document.getElementById(id).value);return isFinite(v)?v:0;};
+    save({config:{rankPoints:(S.config.rankPoints||[]).map((_,i)=>num("rp-"+i)),finalBonus:[0,1,2,3].map(i=>num("fb-"+i)),ballotPts:num("pt-ballot"),elimPts:num("pt-elim"),xpassPts:num("pt-xpass")}});return;
+  }
+}
+function onChange(ev){
+  const t=ev.target;
+  if(t.id==="me"){me=t.value;lsSet(ME_KEY,me);render();return;}
+  const a=t.dataset.act;if(!a||readOnly)return;const v=t.value||null;const d=t.dataset;
+  if(a==="xp-pick"){save({xpassPicks:{[d.p]:v}});return;}
+  if(a==="xp-winner"){save({xpassWinner:v});return;}
+  if(a==="pred-b"){const ep=S.episodes[d.e]||{};const pr=(ep.preds||{})[d.p]||{};const arr=[(pr.b||[])[0]||null,(pr.b||[])[1]||null];arr[+d.i]=v;
+    const e=pr.e&&arr.includes(pr.e)?pr.e:null;save({episodes:{[d.e]:{preds:{[d.p]:{b:arr,e}}}}});return;}
+  if(a==="pred-e"){save({episodes:{[d.e]:{preds:{[d.p]:{e:v}}}}});return;}
+  if(a==="res-b"||a==="res-e"){const key=a==="res-b"?"ballot":"elim";const ep=S.episodes[d.e]||{};const arr=[(ep[key]||[])[0]||null,(ep[key]||[])[1]||null];arr[+d.i]=v;
+    save({episodes:{[d.e]:{[key]:arr}}});return;}
+  if(a==="final-pred"){const fp=((S.finalPreds||{})[d.p]||[]).slice();while(fp.length<4)fp.push(null);fp[+d.i]=v;save({finalPreds:{[d.p]:fp}});return;}
+  if(a==="final-rank"){const fr=(S.finalRank||[]).slice();while(fr.length<=+d.i)fr.push(null);fr[+d.i]=v;save({finalRank:fr});return;}
+}
+document.addEventListener("click",onClick);
+document.addEventListener("change",onChange);
+const h=(location.hash||"").slice(1);if(TABS.some(([k])=>k===h))tab=h;
+boot();
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Chiunque abbia il link puo leggere e scrivere le partite.
+    match /partite/{partita} {
+      allow read, write: if true;
+    }
+  }
+}
