@@ -220,12 +220,27 @@ function scheduleRender(){
 document.addEventListener("focusout",()=>{if(pendingRender){setTimeout(()=>{const a=document.activeElement;if(!(a&&a.matches&&a.matches("textarea,input"))){pendingRender=false;render();}},0);}});
 
 /* ---------- derived game state ---------- */
+// Ballottaggio 1 vive nei campi storici della puntata (ballot, elim[0], preds); dal 2 in poi in more[k].
+function ballotsOf(e){
+  const nb=Math.max(1,+e.nb||1),out=[];
+  for(let k=1;k<=nb;k++){
+    if(k===1)out.push({k:"1",ballot:e.ballot||[],elim:(e.elim||[])[0]||null,preds:e.preds||{}});
+    else{const m=(e.more||{})[k]||{};out.push({k:String(k),ballot:m.ballot||[],elim:m.elim||null,preds:m.preds||{}});}
+  }
+  return out;
+}
+const epElims=e=>ballotsOf(e).map(b=>b.elim).filter(Boolean);
+function bPatch(eid,k,obj){
+  if(k!=="1")return{episodes:{[eid]:{more:{[k]:obj}}}};
+  const o={};if("ballot" in obj)o.ballot=obj.ballot;if("elim" in obj)o.elim=[obj.elim];if(obj.preds)o.preds=obj.preds;
+  return{episodes:{[eid]:o}};
+}
 function derive(){
   const C=S.config, players=C.players||[], singers=C.singers||[], xp=C.xpass||[];
   const names={};singers.forEach(s=>names[s.id]=s.name);xp.forEach(s=>names[s.id]=s.name);
   const nameOf=id=>names[id]||"—";
   const eps=Object.entries(S.episodes||{}).filter(([,v])=>v).map(([id,v])=>Object.assign({id},v)).sort((a,b)=>a.n-b.n);
-  const elimOrder=[];eps.forEach(e=>(e.elim||[]).forEach(s=>{if(s&&!elimOrder.includes(s))elimOrder.push(s);}));
+  const elimOrder=[];eps.forEach(e=>epElims(e).forEach(s=>{if(!elimOrder.includes(s))elimOrder.push(s);}));
   const contestants=singers.map(s=>s.id).concat(S.xpassWinner?[S.xpassWinner]:[]);
   const N=singers.length+1;
   const finalRank=(S.finalRank||[]).filter(Boolean);
@@ -242,17 +257,20 @@ function derive(){
   if(swap)owner[swap.in]=swap.owner;
   const teamOf=pid=>picks.filter(p=>p.p===pid).map(p=>p.s);
   const effTeam=pid=>teamOf(pid).map(s=>swap&&swap.owner===pid&&s===swap.out?swap.in:s);
-  const activeAt=n=>{const out=new Set();eps.filter(e=>e.n<n).forEach(e=>(e.elim||[]).forEach(s=>s&&out.add(s)));return contestants.filter(s=>!out.has(s));};
+  const activeAt=(n,k)=>{const out=new Set();eps.forEach(e=>{if(e.n<n)epElims(e).forEach(s=>out.add(s));else if(e.n===n&&k)ballotsOf(e).filter(b=>+b.k<+k).forEach(b=>b.elim&&out.add(b.elim));});return contestants.filter(s=>!out.has(s));};
   const active=contestants.filter(s=>!elimOrder.includes(s));
   const scores=players.map(p=>{
     const team=effTeam(p.id).map(s=>{const pl=place(s);return Object.assign({s,pts:rp(pl.pos)},pl);});
     const teamPts=team.reduce((a,t)=>a+t.pts,0);
     const epRows=eps.map(e=>{
-      const pr=(e.preds||{})[p.id]||{};const b=(pr.b||[]).filter(Boolean);
-      const ballot=(e.ballot||[]).filter(Boolean), el=(e.elim||[]).filter(Boolean);
-      const bh=ballot.length?b.filter(x=>ballot.includes(x)).length:0;
-      const eh=!!(el.length&&pr.e&&el.includes(pr.e));
-      return{ep:e,b,e:pr.e||null,bh,eh,bp:bh*(+C.ballotPts||0),ep_:eh?(+C.elimPts||0):0,done:ballot.length>0||el.length>0};
+      const items=ballotsOf(e).map(bl=>{
+        const pr=bl.preds[p.id]||{};const b=(pr.b||[]).filter(Boolean);
+        const ballot=bl.ballot.filter(Boolean);
+        const bh=ballot.length?b.filter(x=>ballot.includes(x)).length:0;
+        const eh=!!(bl.elim&&pr.e&&pr.e===bl.elim);
+        return{k:bl.k,b,e:pr.e||null,bp:bh*(+C.ballotPts||0),ep_:eh?(+C.elimPts||0):0,done:ballot.length>0||!!bl.elim};
+      });
+      return{ep:e,items,bp:items.reduce((a,x)=>a+x.bp,0),ep_:items.reduce((a,x)=>a+x.ep_,0),done:items.some(x=>x.done)};
     });
     const ballotPts=epRows.reduce((a,r)=>a+r.bp,0), elimPts=epRows.reduce((a,r)=>a+r.ep_,0);
     const xpPick=(S.xpassPicks||{})[p.id]||null;
@@ -319,7 +337,7 @@ function vClassifica(D){
 }
 function playerDetail(D,r){
   const team=r.team.length?r.team.map(t=>`<tr><td>${esc(D.nameOf(t.s))}${D.swap&&D.swap.in===t.s&&D.swap.owner===r.p.id?` <span class="pill final">X Pass</span>`:""}</td><td><span class="pill ${t.state}">${t.state==="in"?"in gara":t.state==="out"?"eliminato":"finale"}</span></td><td class="num">${t.state==="in"?"≥ ":""}${t.pos}°</td><td class="num">${fmt(t.pts)}</td></tr>`).join(""):`<tr><td colspan="4" class="muted">Squadra non ancora scelta</td></tr>`;
-  const eps=r.epRows.length?r.epRows.map(x=>`<tr><td>Puntata ${x.ep.n}</td><td>${x.b.length?x.b.map(s=>esc(D.nameOf(s))).join(", "):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.bp):"·"}</td><td>${x.e?esc(D.nameOf(x.e)):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.ep_):"·"}</td></tr>`).join(""):`<tr><td colspan="5" class="muted">Nessuna puntata ancora</td></tr>`;
+  const eps=r.epRows.length?r.epRows.flatMap(row=>row.items.map(x=>Object.assign({ep:row.ep,multi:row.items.length>1},x))).map(x=>`<tr><td>Puntata ${x.ep.n}${x.multi?` · ballottaggio ${x.k}`:""}</td><td>${x.b.length?x.b.map(s=>esc(D.nameOf(s))).join(", "):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.bp):"·"}</td><td>${x.e?esc(D.nameOf(x.e)):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.ep_):"·"}</td></tr>`).join(""):`<tr><td colspan="5" class="muted">Nessuna puntata ancora</td></tr>`;
   return `<div class="card stack" style="margin-bottom:6px">
     <div class="grid2">
       <div class="stack"><span class="label">Squadra</span><div class="tbl"><table><thead><tr><th>Cantante</th><th>Stato</th><th class="num">Pos.</th><th class="num">Punti</th></tr></thead><tbody>${team}</tbody></table></div></div>
@@ -390,34 +408,40 @@ function vPuntate(D){
   const add=`<button class="btn primary" data-act="ep-add"${W()}>Aggiungi puntata ${D.eps.length?D.eps[D.eps.length-1].n+1:1}</button>`;
   if(!D.players.length)return `<section class="view"><h2>Fase 3 · Puntate live</h2>${emptyPlayers()}</section>`;
   const cards=D.eps.slice().reverse().map(e=>{
-    const act=D.activeAt(e.n);const ballot=e.ballot||[];const elim=e.elim||[];const lock=!!e.locked;
-    const sc=D.scores;
-    const preds=D.players.map(p=>{const pr=(e.preds||{})[p.id]||{};const b=pr.b||[];const r=sc.find(x=>x.p.id===p.id).epRows.find(x=>x.ep.id===e.id);
-      const dis=(lock||readOnly)?" disabled":"";
-      return `<div class="pn">${esc(p.name)}</div>
-        <select data-act="pred-b" data-e="${e.id}" data-p="${p.id}" data-i="0" aria-label="${esc(p.name)} ballottaggio 1"${dis}>${options(act,b[0]||"",[b[1]],D,"Ballottaggio 1")}</select>
-        <select data-act="pred-b" data-e="${e.id}" data-p="${p.id}" data-i="1" aria-label="${esc(p.name)} ballottaggio 2"${dis}>${options(act,b[1]||"",[b[0]],D,"Ballottaggio 2")}</select>
-        <select class="pe" data-act="pred-e" data-e="${e.id}" data-p="${p.id}" aria-label="${esc(p.name)} eliminato"${dis}>${options(b.filter(Boolean),pr.e||"",[],D,"Eliminato")}</select>
-        <span class="num" style="text-align:right">${r.done?`<b>${fmt(r.bp+r.ep_)}</b>`:"·"}</span>`;}).join("");
+    const lock=!!e.locked;const bls=ballotsOf(e);const multi=bls.length>1;
+    const sections=bls.map(bl=>{
+      const act=D.activeAt(e.n,bl.k);const ballot=bl.ballot;const k=bl.k;
+      const preds=D.players.map(p=>{const pr=bl.preds[p.id]||{};const b=pr.b||[];
+        const r=D.scores.find(x=>x.p.id===p.id).epRows.find(x=>x.ep.id===e.id).items.find(x=>x.k===k);
+        const dis=(lock||readOnly)?" disabled":"";const at=`data-e="${e.id}" data-k="${k}" data-p="${p.id}"`;
+        return `<div class="pn">${esc(p.name)}</div>
+          <select data-act="pred-b" ${at} data-i="0" aria-label="${esc(p.name)} cantante 1"${dis}>${options(act,b[0]||"",[b[1]],D,"Cantante 1")}</select>
+          <select data-act="pred-b" ${at} data-i="1" aria-label="${esc(p.name)} cantante 2"${dis}>${options(act,b[1]||"",[b[0]],D,"Cantante 2")}</select>
+          <select class="pe" data-act="pred-e" ${at} aria-label="${esc(p.name)} eliminato"${dis}>${options(b.filter(Boolean),pr.e||"",[],D,"Eliminato")}</select>
+          <span class="num" style="text-align:right">${r&&r.done?`<b>${fmt(r.bp+r.ep_)}</b>`:"·"}</span>`;}).join("");
+      const canDel=multi&&+k===bls.length;
+      return `<div class="stack" style="border-top:1px solid var(--line);padding-top:12px">
+        <div class="row" style="justify-content:space-between"><h3>Ballottaggio ${k}</h3>${canDel?`<button class="btn ghost" data-act="ballot-del" data-e="${e.id}"${W()}>Togli ballottaggio ${k}</button>`:""}</div>
+        <div class="stack"><span class="label">Pronostici · 2 al ballottaggio (${fmt(+D.C.ballotPts||0)} pt l'uno) e chi esce fra i due (${fmt(+D.C.elimPts||0)} pt)</span>
+          <div class="pform"><span class="h">Giocatore</span><span class="h">Cantante 1</span><span class="h">Cantante 2</span><span class="h">Eliminato</span><span class="h" style="text-align:right">Punti</span>${preds}</div></div>
+        <div class="stack"><span class="label">Risultato del ballottaggio ${k}</span>
+          <div class="grid2">
+            <div class="stack"><span class="muted" style="font-size:13px">Al ballottaggio</span><div class="row" style="flex-wrap:nowrap">
+              <select data-act="res-b" data-e="${e.id}" data-k="${k}" data-i="0" aria-label="Ballottaggio ${k} reale, cantante 1"${W()}>${options(act,ballot[0]||"",[ballot[1]],D,"Cantante 1")}</select>
+              <select data-act="res-b" data-e="${e.id}" data-k="${k}" data-i="1" aria-label="Ballottaggio ${k} reale, cantante 2"${W()}>${options(act,ballot[1]||"",[ballot[0]],D,"Cantante 2")}</select></div></div>
+            <div class="stack"><span class="muted" style="font-size:13px">Eliminato</span>
+              <select data-act="res-e" data-e="${e.id}" data-k="${k}" aria-label="Eliminato del ballottaggio ${k}"${W()}>${options(ballot.filter(Boolean).length?ballot.filter(Boolean):act,bl.elim||"",[],D,"Eliminato")}</select></div>
+          </div></div></div>`;
+    }).join("");
     return `<div class="card stack">
-      <div class="row" style="justify-content:space-between"><div class="row"><h2>Puntata ${e.n}</h2>${lock?`<span class="pill lock">Pronostici chiusi</span>`:`<span class="pill in">Pronostici aperti</span>`}</div>
+      <div class="row" style="justify-content:space-between"><div class="row"><h2>Puntata ${e.n}</h2>${lock?`<span class="pill lock">Pronostici chiusi</span>`:`<span class="pill in">Pronostici aperti</span>`}${multi?`<span class="pill final">${bls.length} ballottaggi</span>`:""}</div>
         <div class="row"><button class="btn" data-act="ep-lock" data-e="${e.id}"${W()}>${lock?"Riapri pronostici":"Chiudi pronostici"}</button>
         ${armed==="del-"+e.id?`<span class="confirm"><span class="muted">Eliminare la puntata?</span><button class="btn danger" data-act="ep-del" data-e="${e.id}"${W()}>Sì, elimina</button><button class="btn ghost" data-act="disarm">No</button></span>`:`<button class="btn ghost" data-act="arm" data-k="del-${e.id}"${W()}>Elimina</button>`}</div></div>
-      <div class="stack"><span class="label">Pronostici · 2 al ballottaggio (${fmt(+D.C.ballotPts||0)} pt l'uno) e chi esce fra i due (${fmt(+D.C.elimPts||0)} pt)</span>
-        <div class="pform"><span class="h">Giocatore</span><span class="h">Ballottaggio 1</span><span class="h">Ballottaggio 2</span><span class="h">Eliminato</span><span class="h" style="text-align:right">Punti</span>${preds}</div></div>
-      <div class="stack" style="border-top:1px solid var(--line);padding-top:12px"><span class="label">Risultati della puntata</span>
-        <div class="grid2">
-          <div class="stack"><span class="muted" style="font-size:13px">Al ballottaggio</span><div class="row" style="flex-wrap:nowrap">
-            <select data-act="res-b" data-e="${e.id}" data-i="0" aria-label="Ballottaggio reale 1"${W()}>${options(act,ballot[0]||"",[ballot[1]],D,"Cantante 1")}</select>
-            <select data-act="res-b" data-e="${e.id}" data-i="1" aria-label="Ballottaggio reale 2"${W()}>${options(act,ballot[1]||"",[ballot[0]],D,"Cantante 2")}</select></div></div>
-          <div class="stack"><span class="muted" style="font-size:13px">Eliminati, in ordine di uscita</span><div class="row" style="flex-wrap:nowrap">
-            <select data-act="res-e" data-e="${e.id}" data-i="0" aria-label="Primo eliminato"${W()}>${options(act,elim[0]||"",[elim[1]],D,"1° eliminato")}</select>
-            <select data-act="res-e" data-e="${e.id}" data-i="1" aria-label="Secondo eliminato"${W()}>${options(act,elim[1]||"",[elim[0]],D,"2° eliminato (se c'è)")}</select></div></div>
-        </div></div></div>`;}).join("");
-  return `<section class="view"><div class="stack"><h2>Fase 3 · Puntate live</h2><div class="muted">Prima della live ognuno indica i 2 cantanti al ballottaggio e chi tra i due sarà eliminato. Chiudi i pronostici quando inizia la puntata, poi inserisci i risultati.</div></div>
+      ${sections}
+      <div><button class="btn" data-act="ballot-add" data-e="${e.id}"${W()}>Aggiungi ballottaggio ${bls.length+1}</button></div></div>`;}).join("");
+  return `<section class="view"><div class="stack"><h2>Fase 3 · Puntate live</h2><div class="muted">Prima della live ognuno indica, per ogni ballottaggio, i 2 cantanti che ci andranno e chi tra i due sarà eliminato. Se in una puntata ci sono più ballottaggi, aggiungili con il tasto in fondo alla puntata: gli eliminati escono in classifica nell'ordine dei ballottaggi. Chiudi i pronostici quando inizia la puntata, poi inserisci i risultati.</div></div>
     <div>${add}</div>${cards||`<div class="empty">Nessuna puntata ancora. Aggiungi la prima quando partono le live.</div>`}</section>`;
 }
-
 function vFinale(D){
   if(!D.players.length)return `<section class="view"><h2>Finale</h2>${emptyPlayers()}</section>`;
   const pool=D.active;const fb=D.C.finalBonus||[];
@@ -479,6 +503,7 @@ function vRegole(D){
   <div class="stack"><h3>Fase 3 · Punteggio</h3><ul>
     <li><b>Ballottaggio:</b> prima della live indica 2 cantanti che andranno al ballottaggio, ${fmt(+C.ballotPts||0)} punti per ognuno indovinato.</li>
     <li><b>Eliminazione:</b> fra i tuoi due indica chi sarà eliminato, ${fmt(+C.elimPts||0)} punti se indovini.</li>
+    <li>In una puntata possono esserci più ballottaggi: per ognuno si fanno pronostici e si prendono punti allo stesso modo.</li>
     <li><b>Classifica:</b> ogni cantante della tua squadra porta i punti della sua posizione: ${(C.rankPoints||[]).map((v,i)=>`${i+1}° ${fmt(+v)}`).join(", ")}.</li>
     <li>Gli eliminati occupano le ultime posizioni in ordine di eliminazione: il primo eliminato è ultimo.</li>
     <li><b>Finale:</b> prima dell'ultima live ipotizza la classifica. Bonus: ${[0,1,2,3].map(i=>`${i+1}° ${fmt(+(C.finalBonus||[])[i]||0)}`).join(", ")} (modificabili in Setup).</li></ul></div>
@@ -517,6 +542,8 @@ function onClick(ev){
   if(a==="pick"){const I=draftInfo(D);if(I.state!=="pick"||I.who!==b.dataset.p)return;const picks=D.picks.concat([{p:I.who,s:b.dataset.s,r:I.round+1}]);save({draft:{picks}});return;}
   if(a==="undo"){save({draft:{picks:D.picks.slice(0,-1)}});return;}
   if(a==="ep-add"){const n=D.eps.length?D.eps[D.eps.length-1].n+1:1;save({episodes:{[uid("e")]:{n,ballot:[],elim:[],locked:false,preds:{}}}});return;}
+  if(a==="ballot-add"){const e=S.episodes[b.dataset.e]||{};save({episodes:{[b.dataset.e]:{nb:Math.max(1,+e.nb||1)+1}}});return;}
+  if(a==="ballot-del"){const e=S.episodes[b.dataset.e]||{};const nb=Math.max(1,+e.nb||1);if(nb<2)return;save({episodes:{[b.dataset.e]:{nb:nb-1,more:{[nb]:null}}}});return;}
   if(a==="ep-lock"){const e=S.episodes[b.dataset.e];save({episodes:{[b.dataset.e]:{locked:!(e&&e.locked)}}});return;}
   if(a==="ep-del"){armed=null;save({episodes:{[b.dataset.e]:null}});return;}
   if(a==="reset"){armed=null;const n=defaultState();n.config=clone(S.config);replaceAll(n);return;}
@@ -540,11 +567,15 @@ function onChange(ev){
   const a=t.dataset.act;if(!a||readOnly)return;const v=t.value||null;const d=t.dataset;
   if(a==="xp-pick"){save({xpassPicks:{[d.p]:v}});return;}
   if(a==="xp-winner"){save({xpassWinner:v});return;}
-  if(a==="pred-b"){const ep=S.episodes[d.e]||{};const pr=(ep.preds||{})[d.p]||{};const arr=[(pr.b||[])[0]||null,(pr.b||[])[1]||null];arr[+d.i]=v;
-    const e=pr.e&&arr.includes(pr.e)?pr.e:null;save({episodes:{[d.e]:{preds:{[d.p]:{b:arr,e}}}}});return;}
-  if(a==="pred-e"){save({episodes:{[d.e]:{preds:{[d.p]:{e:v}}}}});return;}
-  if(a==="res-b"||a==="res-e"){const key=a==="res-b"?"ballot":"elim";const ep=S.episodes[d.e]||{};const arr=[(ep[key]||[])[0]||null,(ep[key]||[])[1]||null];arr[+d.i]=v;
-    save({episodes:{[d.e]:{[key]:arr}}});return;}
+  if(a==="pred-b"||a==="pred-e"||a==="res-b"||a==="res-e"){
+    const bl=ballotsOf(S.episodes[d.e]||{}).find(x=>x.k===d.k);if(!bl)return;
+    if(a==="pred-b"){const pr=bl.preds[d.p]||{};const arr=[(pr.b||[])[0]||null,(pr.b||[])[1]||null];arr[+d.i]=v;
+      const e=pr.e&&arr.includes(pr.e)?pr.e:null;save(bPatch(d.e,d.k,{preds:{[d.p]:{b:arr,e}}}));return;}
+    if(a==="pred-e"){save(bPatch(d.e,d.k,{preds:{[d.p]:{e:v}}}));return;}
+    if(a==="res-b"){const arr=[bl.ballot[0]||null,bl.ballot[1]||null];arr[+d.i]=v;
+      const patch={ballot:arr};if(bl.elim&&!arr.includes(bl.elim))patch.elim=null;save(bPatch(d.e,d.k,patch));return;}
+    save(bPatch(d.e,d.k,{elim:v}));return;
+  }
   if(a==="final-pred"){const fp=((S.finalPreds||{})[d.p]||[]).slice();while(fp.length<4)fp.push(null);fp[+d.i]=v;save({finalPreds:{[d.p]:fp}});return;}
   if(a==="final-rank"){const fr=(S.finalRank||[]).slice();while(fr.length<=+d.i)fr.push(null);fr[+d.i]=v;save({finalRank:fr});return;}
 }
