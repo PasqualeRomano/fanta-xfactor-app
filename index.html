@@ -142,7 +142,7 @@ details summary{cursor:pointer;font-weight:600}
 const DEF_SINGERS=["Alice Fregoso","Scraffs","Giacomo Calò","Mad-Dog","Camilla","Manu","Veronica Bruganelli","ALÌA","Alex Fontana","Patrizia","Le Distanze","Lenanie (Danny)"];
 const DEF_XPASS=["Matteo Markus “Teo” Bok","Neyja","Giorgia Cappelletti","Camilla Tradardi (Rakatoum)","Niccolò Riolfo","Chiara Ludovica Giorgi (Claude)","D!PS","Timothée Bonnardel","Angelo Caianiello","Benedetta “Kora” Cornalba","Sofia Sole Cammarota","Elia Ballancin","Nicola Trois","Lorena Luca","Rawstrings","Vito Damiano","Christian Cordone"];
 const ROUNDS=4;
-const TABS=[["classifica","Classifica"],["squadre","Fase 1 · Squadre"],["xpass","Fase 2 · X Pass"],["puntate","Fase 3 · Puntate"],["finale","Finale"],["setup","Setup"],["regole","Regole"]];
+const TABS=[["classifica","Classifica"],["xpass","X Pass"],["puntate","Puntate"],["squadre","Squadre"],["finale","Finale"],["setup","Setup"],["regole","Regole"]];
 
 function defaultState(){return{v:1,
   config:{singers:DEF_SINGERS.map((n,i)=>({id:"s"+(i+1),name:n})),xpass:DEF_XPASS.map((n,i)=>({id:"x"+(i+1),name:n})),players:[],
@@ -252,11 +252,12 @@ function derive(){
   }
   const picks=(S.draft.picks||[]).filter(p=>p&&p.p&&p.s);
   const owner={};picks.forEach(p=>owner[p.s]=p.p);
-  let swap=null;const first=elimOrder[0];
-  if(first&&S.xpassWinner&&owner[first]&&(S.xpassPicks||{})[owner[first]]===S.xpassWinner)swap={owner:owner[first],out:first,in:S.xpassWinner};
-  if(swap)owner[swap.in]=swap.owner;
+  // Le squadre si formano dopo la 1ª puntata: pool = cantanti + X Pass, meno gli eliminati della puntata 1.
+  const ep1=eps.find(e=>e.n===1);const ep1Out=ep1?epElims(ep1):[];
+  const draftReady=!!(S.xpassWinner&&ep1Out.length);
+  const pool=contestants.filter(s=>!ep1Out.includes(s));
   const teamOf=pid=>picks.filter(p=>p.p===pid).map(p=>p.s);
-  const effTeam=pid=>teamOf(pid).map(s=>swap&&swap.owner===pid&&s===swap.out?swap.in:s);
+  const effTeam=teamOf;
   const activeAt=(n,k)=>{const out=new Set();eps.forEach(e=>{if(e.n<n)epElims(e).forEach(s=>out.add(s));else if(e.n===n&&k)ballotsOf(e).filter(b=>+b.k<+k).forEach(b=>b.elim&&out.add(b.elim));});return contestants.filter(s=>!out.has(s));};
   const active=contestants.filter(s=>!elimOrder.includes(s));
   const scores=players.map(p=>{
@@ -283,7 +284,7 @@ function derive(){
   });
   const ranked=scores.slice().sort((a,b)=>b.total-a.total||a.p.name.localeCompare(b.p.name));
   let lastT=null,lastPos=0;ranked.forEach((r,i)=>{if(r.total!==lastT){lastPos=i+1;lastT=r.total;}r.rank=lastPos;});
-  return{C,players,singers,xp,nameOf,eps,elimOrder,contestants,active,N,finalRank,rp,place,picks,owner,swap,teamOf,effTeam,activeAt,scores,ranked};
+  return{C,players,singers,xp,nameOf,eps,elimOrder,contestants,active,N,finalRank,rp,place,picks,owner,pool,draftReady,ep1Out,teamOf,effTeam,activeAt,scores,ranked};
 }
 
 function draftInfo(D){
@@ -292,10 +293,11 @@ function draftInfo(D){
   const o1=valid(S.draft.order1)?S.draft.order1:null, o3=valid(S.draft.order3)?S.draft.order3:null;
   const seq=[o1,o1&&o1.slice().reverse(),o3,o3&&o3.slice().reverse()];
   const taken=new Set(D.picks.map(p=>p.s));
-  const avail=D.singers.filter(s=>!taken.has(s.id));
+  const avail=D.pool.filter(id=>!taken.has(id)).map(id=>({id,name:D.nameOf(id)}));
   const i=D.picks.length, round=P?Math.floor(i/P):0, slot=P?i%P:0;
   let state="pick",who=null;
   if(!P)state="noplayers";
+  else if(!D.draftReady&&!D.picks.length)state="wait";
   else if(round>=ROUNDS||!avail.length)state="done";
   else if(!seq[round])state=round<2?"draw1":"draw3";
   else who=seq[round][slot];
@@ -336,7 +338,7 @@ function vClassifica(D){
   </section>`;
 }
 function playerDetail(D,r){
-  const team=r.team.length?r.team.map(t=>`<tr><td>${esc(D.nameOf(t.s))}${D.swap&&D.swap.in===t.s&&D.swap.owner===r.p.id?` <span class="pill final">X Pass</span>`:""}</td><td><span class="pill ${t.state}">${t.state==="in"?"in gara":t.state==="out"?"eliminato":"finale"}</span></td><td class="num">${t.state==="in"?"≥ ":""}${t.pos}°</td><td class="num">${fmt(t.pts)}</td></tr>`).join(""):`<tr><td colspan="4" class="muted">Squadra non ancora scelta</td></tr>`;
+  const team=r.team.length?r.team.map(t=>`<tr><td>${esc(D.nameOf(t.s))}${t.s===S.xpassWinner?` <span class="pill final">X Pass</span>`:""}</td><td><span class="pill ${t.state}">${t.state==="in"?"in gara":t.state==="out"?"eliminato":"finale"}</span></td><td class="num">${t.state==="in"?"≥ ":""}${t.pos}°</td><td class="num">${fmt(t.pts)}</td></tr>`).join(""):`<tr><td colspan="4" class="muted">Squadra non ancora scelta</td></tr>`;
   const eps=r.epRows.length?r.epRows.flatMap(row=>row.items.map(x=>Object.assign({ep:row.ep,multi:row.items.length>1},x))).map(x=>`<tr><td>Puntata ${x.ep.n}${x.multi?` · ballottaggio ${x.k}`:""}</td><td>${x.b.length?x.b.map(s=>esc(D.nameOf(s))).join(", "):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.bp):"·"}</td><td>${x.e?esc(D.nameOf(x.e)):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.ep_):"·"}</td></tr>`).join(""):`<tr><td colspan="5" class="muted">Nessuna puntata ancora</td></tr>`;
   return `<div class="card stack" style="margin-bottom:6px">
     <div class="grid2">
@@ -361,15 +363,16 @@ function vSingers(D){
 }
 
 function vSquadre(D){
-  if(!D.players.length)return `<section class="view"><h2>Fase 1 · Scegli la tua squadra</h2>${emptyPlayers()}</section>`;
+  if(!D.players.length)return `<section class="view"><h2>Scegli la tua squadra</h2>${emptyPlayers()}</section>`;
   const I=draftInfo(D);
   let turn="";
-  if(I.state==="draw1")turn=`<div class="card stack"><h3>Primo giro: estrazione a sorte</h3><div class="muted">Il primo estratto sceglie per primo, poi il secondo, e così via.</div><div><button class="btn primary" data-act="draw" data-r="1"${W()}>Estrai l'ordine del 1° giro</button></div></div>`;
+  if(I.state==="wait")turn=`<div class="empty">Le squadre si formano dopo la 1ª puntata. Prima inserisci l'X Pass ufficiale (${S.xpassWinner?"fatto":"da fare"}) e l'eliminato della puntata 1 (${D.ep1Out.length?"fatto":"da fare"}). A quel punto l'X Pass entra nel pool al posto dell'eliminato.</div>`;
+  else if(I.state==="draw1")turn=`<div class="card stack"><h3>Primo giro: estrazione a sorte</h3><div class="muted">Il primo estratto sceglie per primo, poi il secondo, e così via.</div><div><button class="btn primary" data-act="draw" data-r="1"${W()}>Estrai l'ordine del 1° giro</button></div></div>`;
   else if(I.state==="draw3")turn=`<div class="card stack"><h3>Terzo giro: nuova estrazione</h3><div class="muted">Si rifà il sorteggio. Il 4° giro partirà dall'ultimo del 3°.</div><div><button class="btn primary" data-act="draw" data-r="3"${W()}>Estrai l'ordine del 3° giro</button></div></div>`;
   else if(I.state==="done")turn=`<div class="card"><h3>Draft completato</h3><div class="muted">${I.avail.length?`${I.avail.length} cantanti restano liberi.`:"Tutti i cantanti sono stati assegnati."}</div></div>`;
   else turn=`<div class="card stack"><div class="turn"><span class="label">${I.round+1}° giro · scelta ${I.slot+1} di ${I.P}</span><span class="who">Tocca a ${esc(pName(D,I.who))}</span></div>
     <div class="pickgrid">${I.avail.map(s=>`<button data-act="pick" data-s="${s.id}" data-p="${I.who}"${W()}>${esc(s.name)}</button>`).join("")}</div></div>`;
-  const need=I.P*ROUNDS, have=D.singers.length;
+  const need=I.P*ROUNDS, have=D.pool.length;
   const warn=need>have?`<div class="notice">Con ${I.P} partecipanti e 4 giri servirebbero ${need} cantanti, ma ce ne sono ${have}: il draft si ferma quando la lista finisce.</div>`:"";
   const rounds=[0,1,2,3].map(r=>{
     const o=I.seq[r];const lab=["1° giro · estrazione","2° giro · ordine inverso","3° giro · nuova estrazione","4° giro · ordine inverso"][r];
@@ -379,34 +382,27 @@ function vSquadre(D){
   const teams=D.players.map(p=>`<div class="card stack"><h3>${esc(p.name)}</h3><div class="row" style="gap:6px">${D.teamOf(p.id).length?D.effTeam(p.id).map(s=>chip(D,s)).join(""):`<span class="muted">Ancora nessun cantante</span>`}</div></div>`).join("");
   const undo=D.picks.length?`<button class="btn" data-act="undo"${W()}>Annulla ultima scelta</button>`:"";
   const redraw=(I.o1&&D.picks.length===0)?`<button class="btn ghost" data-act="draw" data-r="1"${W()}>Riestrai 1° giro</button>`:(I.o3&&D.picks.length===2*I.P)?`<button class="btn ghost" data-act="draw" data-r="3"${W()}>Riestrai 3° giro</button>`:"";
-  return `<section class="view"><div class="stack"><h2>Fase 1 · Scegli la tua squadra</h2><div class="muted">Ogni cantante scelto esce dalla lista: nessun cantante può stare in due squadre.</div></div>
+  return `<section class="view"><div class="stack"><h2>Scegli la tua squadra</h2><div class="muted">Si fa dopo la 1ª puntata. Nel pool ci sono i cantanti rimasti più l'X Pass${D.ep1Out.length?` (fuori: ${D.ep1Out.map(x=>esc(D.nameOf(x))).join(", ")})`:""}. Ogni cantante scelto esce dalla lista: nessun cantante può stare in due squadre.</div></div>
     ${warn}${turn}<div class="row">${undo}${redraw}</div>
     <div class="rounds">${rounds}</div>
     <div class="stack"><h2>Squadre</h2><div class="grid2">${teams}</div></div></section>`;
 }
 
 function vXpass(D){
-  if(!D.players.length)return `<section class="view"><h2>Fase 2 · X Pass di Giorgia</h2>${emptyPlayers()}</section>`;
+  if(!D.players.length)return `<section class="view"><h2>X Pass di Giorgia</h2>${emptyPlayers()}</section>`;
   const ids=D.xp.map(x=>x.id);
   const rows=D.players.map(p=>{const pick=(S.xpassPicks||{})[p.id]||"";const hit=S.xpassWinner&&pick===S.xpassWinner;
     return `<tr class="${p.id===me?"me":""}"><td><b>${esc(p.name)}</b></td><td style="min-width:220px"><select data-act="xp-pick" data-p="${p.id}"${W()}>${options(ids,pick,[],D,"Scegli…")}</select></td><td class="num">${S.xpassWinner?(hit?`<span class="ok">+${fmt(+D.C.xpassPts||0)}</span>`:"0"):"·"}</td></tr>`;}).join("");
-  let swapTxt="";
-  if(S.xpassWinner){
-    const first=D.elimOrder[0];
-    if(!first)swapTxt=`Quando ci sarà il primo eliminato delle live, se il suo proprietario ha indovinato l'X Pass, ${esc(D.nameOf(S.xpassWinner))} entrerà nella sua squadra al suo posto.`;
-    else if(D.swap)swapTxt=`Primo eliminato: <b>${esc(D.nameOf(first))}</b>. ${esc(pName(D,D.swap.owner))} aveva indovinato l'X Pass, quindi <b>${esc(D.nameOf(D.swap.in))}</b> lo sostituisce nella sua squadra.`;
-    else swapTxt=`Primo eliminato: <b>${esc(D.nameOf(first))}</b>${D.owner[first]?` (squadra di ${esc(pName(D,D.owner[first]))})`:""}. Nessuna sostituzione: il proprietario non aveva indovinato l'X Pass.`;
-  }
-  return `<section class="view"><div class="stack"><h2>Fase 2 · X Pass di Giorgia</h2><div class="muted">Ognuno indovina chi sarà l'X Pass. Chi indovina prende ${fmt(+D.C.xpassPts||0)} punti bonus.</div></div>
+  return `<section class="view"><div class="stack"><h2>X Pass di Giorgia</h2><div class="muted">Ognuno indovina chi sarà l'X Pass. Chi indovina prende ${fmt(+D.C.xpassPts||0)} punti bonus (modificabili in Setup), ma non il cantante in squadra.</div></div>
     <div class="tbl"><table><thead><tr><th>Giocatore</th><th>X Pass previsto</th><th class="num">Bonus</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="card stack"><h3>X Pass ufficiale</h3><div class="muted">Da compilare quando Giorgia lo annuncia: entra in gara come ${D.N}° concorrente.</div>
+    <div class="card stack"><h3>X Pass ufficiale</h3><div class="muted">Da compilare quando Giorgia lo annuncia. Dopo la 1ª puntata entra nel pool delle squadre al posto dell'eliminato.</div>
       <div style="max-width:360px"><select id="xp-winner" data-act="xp-winner"${W()}>${options(ids,S.xpassWinner||"",[],D,"Non ancora annunciato")}</select></div>
-      ${swapTxt?`<div class="notice">${swapTxt}</div>`:""}</div></section>`;
+</div></section>`;
 }
 
 function vPuntate(D){
   const add=`<button class="btn primary" data-act="ep-add"${W()}>Aggiungi puntata ${D.eps.length?D.eps[D.eps.length-1].n+1:1}</button>`;
-  if(!D.players.length)return `<section class="view"><h2>Fase 3 · Puntate live</h2>${emptyPlayers()}</section>`;
+  if(!D.players.length)return `<section class="view"><h2>Puntate live</h2>${emptyPlayers()}</section>`;
   const cards=D.eps.slice().reverse().map(e=>{
     const lock=!!e.locked;const bls=ballotsOf(e);const multi=bls.length>1;
     const sections=bls.map(bl=>{
@@ -439,7 +435,7 @@ function vPuntate(D){
         ${armed==="del-"+e.id?`<span class="confirm"><span class="muted">Eliminare la puntata?</span><button class="btn danger" data-act="ep-del" data-e="${e.id}"${W()}>Sì, elimina</button><button class="btn ghost" data-act="disarm">No</button></span>`:`<button class="btn ghost" data-act="arm" data-k="del-${e.id}"${W()}>Elimina</button>`}</div></div>
       ${sections}
       <div><button class="btn" data-act="ballot-add" data-e="${e.id}"${W()}>Aggiungi ballottaggio ${bls.length+1}</button></div></div>`;}).join("");
-  return `<section class="view"><div class="stack"><h2>Fase 3 · Puntate live</h2><div class="muted">Prima della live ognuno indica, per ogni ballottaggio, i 2 cantanti che ci andranno e chi tra i due sarà eliminato. Se in una puntata ci sono più ballottaggi, aggiungili con il tasto in fondo alla puntata: gli eliminati escono in classifica nell'ordine dei ballottaggi. Chiudi i pronostici quando inizia la puntata, poi inserisci i risultati.</div></div>
+  return `<section class="view"><div class="stack"><h2>Puntate live</h2><div class="muted">Prima della live ognuno indica, per ogni ballottaggio, i 2 cantanti che ci andranno e chi tra i due sarà eliminato. Se in una puntata ci sono più ballottaggi, aggiungili con il tasto in fondo alla puntata: gli eliminati escono in classifica nell'ordine dei ballottaggi. Chiudi i pronostici quando inizia la puntata, poi inserisci i risultati.</div></div>
     <div>${add}</div>${cards||`<div class="empty">Nessuna puntata ancora. Aggiungi la prima quando partono le live.</div>`}</section>`;
 }
 function vFinale(D){
@@ -491,16 +487,18 @@ function vSetup(D){
 function vRegole(D){
   const C=D.C;
   return `<section class="view rules"><h2>Regole</h2>
-  <div class="stack"><h3>Fase 1 · Scegli la tua squadra</h3><ul>
+  <div class="stack"><h3>X Pass di Giorgia</h3><ul>
+    <li>Prima delle live ognuno indovina chi sarà l'X Pass: se indovina, ${fmt(+C.xpassPts||0)} punti bonus. Il cantante non va in squadra.</li></ul></div>
+  <div class="stack"><h3>Prima puntata</h3><ul>
+    <li>Si giocano già i pronostici su ballottaggi ed eliminati, ma non ci sono ancora squadre.</li>
+    <li>Dopo la prima puntata l'X Pass entra nel pool dei cantanti al posto dell'eliminato.</li></ul></div>
+  <div class="stack"><h3>Scegli la tua squadra (dopo la 1ª puntata)</h3><ul>
     <li><b>1° giro:</b> estrazione a sorte, il primo estratto sceglie, poi il secondo e così via.</li>
     <li><b>2° giro:</b> l'ultimo del 1° giro sceglie per primo (ordine inverso).</li>
     <li><b>3° giro:</b> nuova estrazione, il primo estratto sceglie.</li>
     <li><b>4° giro:</b> l'ultimo del 3° giro sceglie per primo (ordine inverso).</li>
     <li>Un cantante scelto esce dalla lista: non può stare in più squadre.</li></ul></div>
-  <div class="stack"><h3>Fase 2 · X Pass di Giorgia</h3><ul>
-    <li>Ognuno indovina chi sarà l'X Pass: se indovina, ${fmt(+C.xpassPts||0)} punti bonus.</li>
-    <li>Se chi ha in squadra il primo eliminato delle live ha indovinato l'X Pass, l'X Pass lo sostituisce nella sua squadra.</li></ul></div>
-  <div class="stack"><h3>Fase 3 · Punteggio</h3><ul>
+  <div class="stack"><h3>Punteggio</h3><ul>
     <li><b>Ballottaggio:</b> prima della live indica 2 cantanti che andranno al ballottaggio, ${fmt(+C.ballotPts||0)} punti per ognuno indovinato.</li>
     <li><b>Eliminazione:</b> fra i tuoi due indica chi sarà eliminato, ${fmt(+C.elimPts||0)} punti se indovini.</li>
     <li>In una puntata possono esserci più ballottaggi: per ognuno si fanno pronostici e si prendono punti allo stesso modo.</li>
