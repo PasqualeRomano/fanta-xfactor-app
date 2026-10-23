@@ -110,6 +110,9 @@ tr.me td{background:color-mix(in srgb,var(--accent) 7%,transparent)}
 .pform>*{min-width:0}
 .pform .h{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600}
 .ok{color:var(--good);font-weight:700}
+.pform .hid{grid-column:span 3}
+.hid{color:var(--muted);font-size:14px}
+.hid.done{color:var(--good);font-weight:600}
 .notice{border-left:3px solid var(--gold);padding:8px 12px;background:var(--surface);border-radius:0 8px 8px 0;font-size:14px}
 .rules{max-width:68ch}
 .rules li{margin-bottom:6px}
@@ -120,6 +123,7 @@ details summary{cursor:pointer;font-weight:600}
   .pform .h{display:none}
   .pform .pn{grid-column:1/-1;font-weight:700;margin-top:8px}
   .pform .pe{grid-column:1/2}
+  .pform .hid{grid-column:1/-1}
 }
 @media (prefers-reduced-motion:no-preference){.bar b{transition:width .4s ease}}
 </style>
@@ -312,6 +316,10 @@ function options(list,sel,exclude,D,placeholder){
 }
 const W=()=>readOnly?" disabled":"";
 function chip(D,id,extra){const pl=D.place(id);const cls=pl.state==="out"?" out":"";const isX=id===S.xpassWinner?" xp":"";return `<span class="chip${cls}${isX}">${esc(D.nameOf(id))}${extra||""}</span>`;}
+// Le scelte degli altri restano nascoste finché il pronostico non viene svelato (chiuso o con risultati).
+const hidden=(pid,revealed)=>!revealed&&pid!==me;
+const hidTag=(has,extra)=>`<span class="hid${has?" done":""}"${extra||""}>${has?"✓ Scelta fatta":"Non ancora scelto"}</span>`;
+function meNotice(D){return !me&&D.players.length?`<div class="notice">Scegli chi sei in alto (Io sono) per inserire le tue scelte. Quelle degli altri restano nascoste finché non vengono svelate.</div>`:"";}
 function pName(D,id){const p=D.players.find(x=>x.id===id);return p?p.name:"—";}
 function emptyPlayers(){return `<div class="empty">Nessun partecipante ancora. Aggiungi i nomi degli amici in <button class="btn ghost" data-act="goto" data-tab="setup">Setup</button></div>`;}
 
@@ -339,13 +347,13 @@ function vClassifica(D){
 }
 function playerDetail(D,r){
   const team=r.team.length?r.team.map(t=>`<tr><td>${esc(D.nameOf(t.s))}${t.s===S.xpassWinner?` <span class="pill final">X Pass</span>`:""}</td><td><span class="pill ${t.state}">${t.state==="in"?"in gara":t.state==="out"?"eliminato":"finale"}</span></td><td class="num">${t.state==="in"?"≥ ":""}${t.pos}°</td><td class="num">${fmt(t.pts)}</td></tr>`).join(""):`<tr><td colspan="4" class="muted">Squadra non ancora scelta</td></tr>`;
-  const eps=r.epRows.length?r.epRows.flatMap(row=>row.items.map(x=>Object.assign({ep:row.ep,multi:row.items.length>1},x))).map(x=>`<tr><td>Puntata ${x.ep.n}${x.multi?` · ballottaggio ${x.k}`:""}</td><td>${x.b.length?x.b.map(s=>esc(D.nameOf(s))).join(", "):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.bp):"·"}</td><td>${x.e?esc(D.nameOf(x.e)):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.ep_):"·"}</td></tr>`).join(""):`<tr><td colspan="5" class="muted">Nessuna puntata ancora</td></tr>`;
+  const eps=r.epRows.length?r.epRows.flatMap(row=>row.items.map(x=>Object.assign({ep:row.ep,multi:row.items.length>1},x))).map(x=>{const h=hidden(r.p.id,x.done||x.ep.locked);return `<tr><td>Puntata ${x.ep.n}${x.multi?` · ballottaggio ${x.k}`:""}</td><td>${h?hidTag(x.b.length):x.b.length?x.b.map(s=>esc(D.nameOf(s))).join(", "):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.bp):"·"}</td><td>${h?hidTag(!!x.e):x.e?esc(D.nameOf(x.e)):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.ep_):"·"}</td></tr>`;}).join(""):`<tr><td colspan="5" class="muted">Nessuna puntata ancora</td></tr>`;
   return `<div class="card stack" style="margin-bottom:6px">
     <div class="grid2">
       <div class="stack"><span class="label">Squadra</span><div class="tbl"><table><thead><tr><th>Cantante</th><th>Stato</th><th class="num">Pos.</th><th class="num">Punti</th></tr></thead><tbody>${team}</tbody></table></div></div>
       <div class="stack"><span class="label">Bonus</span>
-        <div>X Pass scelto: <b>${r.xpPick?esc(D.nameOf(r.xpPick)):"—"}</b> ${S.xpassWinner?(r.xpassPts?`<span class="ok">+${fmt(r.xpassPts)}</span>`:"· 0"):""}</div>
-        <div>Pronostico finale: ${r.fp.filter(Boolean).length?r.fp.map((s,i)=>s?`${i+1}° ${esc(D.nameOf(s))}${r.finalHits[i]?` <span class="ok">+${fmt(+D.C.finalBonus[i]||0)}</span>`:""}`:"").filter(Boolean).join(" · "):"—"}</div>
+        <div>X Pass scelto: ${hidden(r.p.id,!!S.xpassWinner)?hidTag(!!r.xpPick):`<b>${r.xpPick?esc(D.nameOf(r.xpPick)):"—"}</b>`} ${S.xpassWinner?(r.xpassPts?`<span class="ok">+${fmt(r.xpassPts)}</span>`:"· 0"):""}</div>
+        <div>Pronostico finale: ${hidden(r.p.id,D.finalRank.length>0)?hidTag(r.fp.filter(Boolean).length>0):r.fp.filter(Boolean).length?r.fp.map((s,i)=>s?`${i+1}° ${esc(D.nameOf(s))}${r.finalHits[i]?` <span class="ok">+${fmt(+D.C.finalBonus[i]||0)}</span>`:""}`:"").filter(Boolean).join(" · "):"—"}</div>
       </div>
     </div>
     <div class="stack"><span class="label">Puntate</span><div class="tbl"><table><thead><tr><th>Puntata</th><th>Ballottaggio previsto</th><th class="num">Punti</th><th>Eliminato previsto</th><th class="num">Punti</th></tr></thead><tbody>${eps}</tbody></table></div></div>
@@ -392,9 +400,9 @@ function vXpass(D){
   if(!D.players.length)return `<section class="view"><h2>X Pass di Giorgia</h2>${emptyPlayers()}</section>`;
   const ids=D.xp.map(x=>x.id);
   const rows=D.players.map(p=>{const pick=(S.xpassPicks||{})[p.id]||"";const hit=S.xpassWinner&&pick===S.xpassWinner;
-    return `<tr class="${p.id===me?"me":""}"><td><b>${esc(p.name)}</b></td><td style="min-width:220px"><select data-act="xp-pick" data-p="${p.id}"${W()}>${options(ids,pick,[],D,"Scegli…")}</select></td><td class="num">${S.xpassWinner?(hit?`<span class="ok">+${fmt(+D.C.xpassPts||0)}</span>`:"0"):"·"}</td></tr>`;}).join("");
+    return `<tr class="${p.id===me?"me":""}"><td><b>${esc(p.name)}</b></td><td style="min-width:220px">${hidden(p.id,!!S.xpassWinner)?hidTag(!!pick):`<select data-act="xp-pick" data-p="${p.id}"${W()}>${options(ids,pick,[],D,"Scegli…")}</select>`}</td><td class="num">${S.xpassWinner?(hit?`<span class="ok">+${fmt(+D.C.xpassPts||0)}</span>`:"0"):"·"}</td></tr>`;}).join("");
   return `<section class="view"><div class="stack"><h2>X Pass di Giorgia</h2><div class="muted">Ognuno indovina chi sarà l'X Pass. Chi indovina prende ${fmt(+D.C.xpassPts||0)} punti bonus (modificabili in Setup), ma non il cantante in squadra.</div></div>
-    <div class="tbl"><table><thead><tr><th>Giocatore</th><th>X Pass previsto</th><th class="num">Bonus</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${meNotice(D)}<div class="tbl"><table><thead><tr><th>Giocatore</th><th>X Pass previsto</th><th class="num">Bonus</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="card stack"><h3>X Pass ufficiale</h3><div class="muted">Da compilare quando Giorgia lo annuncia. Dopo la 1ª puntata entra nel pool delle squadre al posto dell'eliminato.</div>
       <div style="max-width:360px"><select id="xp-winner" data-act="xp-winner"${W()}>${options(ids,S.xpassWinner||"",[],D,"Non ancora annunciato")}</select></div>
 </div></section>`;
@@ -410,6 +418,7 @@ function vPuntate(D){
       const preds=D.players.map(p=>{const pr=bl.preds[p.id]||{};const b=pr.b||[];
         const r=D.scores.find(x=>x.p.id===p.id).epRows.find(x=>x.ep.id===e.id).items.find(x=>x.k===k);
         const dis=(lock||readOnly)?" disabled":"";const at=`data-e="${e.id}" data-k="${k}" data-p="${p.id}"`;
+        if(hidden(p.id,lock||(r&&r.done)))return `<div class="pn">${esc(p.name)}</div>${hidTag(b.filter(Boolean).length>0||!!pr.e)}<span class="num" style="text-align:right">·</span>`;
         return `<div class="pn">${esc(p.name)}</div>
           <select data-act="pred-b" ${at} data-i="0" aria-label="${esc(p.name)} cantante 1"${dis}>${options(act,b[0]||"",[b[1]],D,"Cantante 1")}</select>
           <select data-act="pred-b" ${at} data-i="1" aria-label="${esc(p.name)} cantante 2"${dis}>${options(act,b[1]||"",[b[0]],D,"Cantante 2")}</select>
@@ -435,19 +444,19 @@ function vPuntate(D){
         ${armed==="del-"+e.id?`<span class="confirm"><span class="muted">Eliminare la puntata?</span><button class="btn danger" data-act="ep-del" data-e="${e.id}"${W()}>Sì, elimina</button><button class="btn ghost" data-act="disarm">No</button></span>`:`<button class="btn ghost" data-act="arm" data-k="del-${e.id}"${W()}>Elimina</button>`}</div></div>
       ${sections}
       <div><button class="btn" data-act="ballot-add" data-e="${e.id}"${W()}>Aggiungi ballottaggio ${bls.length+1}</button></div></div>`;}).join("");
-  return `<section class="view"><div class="stack"><h2>Puntate live</h2><div class="muted">Prima della live ognuno indica, per ogni ballottaggio, i 2 cantanti che ci andranno e chi tra i due sarà eliminato. Se in una puntata ci sono più ballottaggi, aggiungili con il tasto in fondo alla puntata: gli eliminati escono in classifica nell'ordine dei ballottaggi. Chiudi i pronostici quando inizia la puntata, poi inserisci i risultati.</div></div>
-    <div>${add}</div>${cards||`<div class="empty">Nessuna puntata ancora. Aggiungi la prima quando partono le live.</div>`}</section>`;
+  return `<section class="view"><div class="stack"><h2>Puntate live</h2><div class="muted">Prima della live ognuno indica, per ogni ballottaggio, i 2 cantanti che ci andranno e chi tra i due sarà eliminato. Se in una puntata ci sono più ballottaggi, aggiungili con il tasto in fondo alla puntata: gli eliminati escono in classifica nell'ordine dei ballottaggi. Le scelte degli altri restano nascoste: si vede solo se le hanno già fatte. Quando chiudi i pronostici, o inserisci i risultati, diventano visibili a tutti.</div></div>
+    ${meNotice(D)}<div>${add}</div>${cards||`<div class="empty">Nessuna puntata ancora. Aggiungi la prima quando partono le live.</div>`}</section>`;
 }
 function vFinale(D){
   if(!D.players.length)return `<section class="view"><h2>Finale</h2>${emptyPlayers()}</section>`;
   const pool=D.active;const fb=D.C.finalBonus||[];
   const head=[0,1,2,3].map(i=>`<th>${i+1}° (+${fmt(+fb[i]||0)})</th>`).join("");
   const rows=D.players.map(p=>{const fp=(S.finalPreds||{})[p.id]||[];const r=D.scores.find(x=>x.p.id===p.id);
-    return `<tr class="${p.id===me?"me":""}"><td><b>${esc(p.name)}</b></td>${[0,1,2,3].map(i=>`<td style="min-width:170px"><select data-act="final-pred" data-p="${p.id}" data-i="${i}"${W()}>${options(pool,fp[i]||"",fp.filter((_,k)=>k!==i),D,"—")}</select>${r.finalHits[i]?` <span class="ok">✓</span>`:""}</td>`).join("")}<td class="num tot">${fmt(r.finalPts)}</td></tr>`;}).join("");
+    return `<tr class="${p.id===me?"me":""}"><td><b>${esc(p.name)}</b></td>${hidden(p.id,D.finalRank.length>0)?`<td colspan="4">${hidTag(fp.filter(Boolean).length>0)}</td>`:[0,1,2,3].map(i=>`<td style="min-width:170px"><select data-act="final-pred" data-p="${p.id}" data-i="${i}"${W()}>${options(pool,fp[i]||"",fp.filter((_,k)=>k!==i),D,"—")}</select>${r.finalHits[i]?` <span class="ok">✓</span>`:""}</td>`).join("")}<td class="num tot">${fmt(r.finalPts)}</td></tr>`;}).join("");
   const fr=S.finalRank||[];const k=Math.max(4,pool.length?Math.min(pool.length,13):4);
   const actual=Array.from({length:Math.min(k,Math.max(pool.length,4))},(_,i)=>`<label class="stack" style="gap:4px"><span class="label">${i+1}° posto</span><select data-act="final-rank" data-i="${i}"${W()}>${options(pool.concat(fr.filter(x=>x&&!pool.includes(x))),fr[i]||"",fr.filter((_,j)=>j!==i),D,"—")}</select></label>`).join("");
   return `<section class="view"><div class="stack"><h2>Finale</h2><div class="muted">Prima dell'ultima live ognuno ipotizza la classifica finale. Bonus per ogni posizione indovinata.</div></div>
-    <div class="tbl"><table><thead><tr><th>Giocatore</th>${head}<th class="num">Bonus</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${meNotice(D)}<div class="tbl"><table><thead><tr><th>Giocatore</th>${head}<th class="num">Bonus</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="card stack"><h3>Classifica finale ufficiale</h3><div class="muted">Da compilare dopo la finale. Fissa anche le posizioni (e i punti squadra) dei finalisti.</div>
       <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">${actual}</div></div></section>`;
 }
@@ -501,6 +510,7 @@ function vRegole(D){
   <div class="stack"><h3>Punteggio</h3><ul>
     <li><b>Ballottaggio:</b> prima della live indica 2 cantanti che andranno al ballottaggio, ${fmt(+C.ballotPts||0)} punti per ognuno indovinato.</li>
     <li><b>Eliminazione:</b> fra i tuoi due indica chi sarà eliminato, ${fmt(+C.elimPts||0)} punti se indovini.</li>
+    <li>Le scelte degli altri restano nascoste finché i pronostici non vengono chiusi o arrivano i risultati: si vede solo chi ha già scelto.</li>
     <li>In una puntata possono esserci più ballottaggi: per ognuno si fanno pronostici e si prendono punti allo stesso modo.</li>
     <li><b>Classifica:</b> ogni cantante della tua squadra porta i punti della sua posizione: ${(C.rankPoints||[]).map((v,i)=>`${i+1}° ${fmt(+v)}`).join(", ")}.</li>
     <li>Gli eliminati occupano le ultime posizioni in ordine di eliminazione: il primo eliminato è ultimo.</li>
