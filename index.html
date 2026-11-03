@@ -154,6 +154,7 @@ function defaultState(){return{v:1,
   draft:{order1:[],order3:[],picks:[]},xpassPicks:{},xpassWinner:null,episodes:{},finalPreds:{},finalRank:[]};}
 
 let S=defaultState(), ready=false, mode="connecting", readOnly=false, docRef=null, tab="classifica", openPlayer=null, armed=null;
+let importMsg="";
 let pendingRender=false, writeChain=Promise.resolve();
 const LS_KEY="fxf-local-state", ME_KEY="fxf-me";
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
@@ -173,12 +174,33 @@ function save(patch){
   merge(S,patch); render();
   if(mode==="local"){lsSet(LS_KEY,JSON.stringify(S));return;}
   if(!docRef||readOnly)return;
-  writeChain=writeChain.then(()=>docRef.update(patch)).catch(e=>{
+  writeChain=writeChain.then(()=>docRef.update(patch)).then(backupToday).catch(e=>{
     if(e&&e.code==="permission-denied"){readOnly=true;setSync();render();}
     else console.warn(e);
   });
 }
+/* ---------- backup ---------- */
+// Una copia della partita al giorno, salvata accanto alla partita come partite/<partita>__bk_<data>.
+let fsRef=null, gameId="main", lastBackup="", backups=null;
+const today=()=>new Date().toISOString().slice(0,10);
+const hasData=st=>!!(st&&st.config&&(st.config.players||[]).length);
+function backupToday(){
+  if(!fsRef||!hasData(S))return;
+  const d=today();if(lastBackup===d)return;lastBackup=d;
+  const copy=clone(S);copy.backupOf=gameId;copy.backupAt=new Date().toISOString();
+  return fsRef.collection("partite").doc(gameId+"__bk_"+d).set(copy).catch(e=>{lastBackup="";console.warn(e);});
+}
+function loadBackups(){
+  if(!fsRef)return;
+  fsRef.collection("partite").get().then(qs=>{
+    backups=qs.docs.filter(d=>d.id.indexOf(gameId+"__bk_")===0).map(d=>({id:d.id,date:d.id.slice((gameId+"__bk_").length),data:d.data()})).sort((a,b)=>b.date.localeCompare(a.date));
+    render();
+  }).catch(e=>{console.warn(e);backups=[];render();});
+}
 function replaceAll(next){
+  // Prima di azzerare o ripristinare, salva una copia di quello che c'era.
+  if(fsRef&&hasData(S)){const prev=clone(S);prev.backupOf=gameId;prev.backupAt=new Date().toISOString();
+    fsRef.collection("partite").doc(gameId+"__bk_"+new Date().toISOString().slice(0,16).replace(":","")).set(prev).catch(e=>console.warn(e));}
   S=next; render();
   if(mode==="local"){lsSet(LS_KEY,JSON.stringify(S));return;}
   if(docRef&&!readOnly)writeChain=writeChain.then(()=>docRef.set(next)).catch(e=>console.warn(e));
@@ -189,17 +211,19 @@ function boot(){
   render();
   const cfg=window.FXF_FIREBASE;
   if(!cfg||!cfg.apiKey||!window.firebase){startLocal();return;}
-  let gameId="main";
   try{const q=new URLSearchParams(location.search).get("partita");if(q&&/^[A-Za-z0-9_-]{1,60}$/.test(q))gameId=q;}catch(e){}
   firebase.initializeApp(cfg);
-  const fs=firebase.firestore();
+  const fs=firebase.firestore();fsRef=fs;
   const ref=fs.collection("partite").doc(gameId);
   docRef={update:p=>ref.set(p,{merge:true}),set:d=>ref.set(d)};
   mode="shared";setSync();
   ref.onSnapshot(snap=>{
     if(!snap.exists){
-      if(!ready){ready=true;S=defaultState();render();ref.set(S).catch(e=>console.warn(e));}
-      else{ready=true;render();}
+      // Una risposta dalla cache (rete lenta o assente) non vuol dire che la partita non esiste:
+      // si crea la partita solo se il server conferma che manca, dentro una transazione.
+      if(snap.metadata.fromCache)return;
+      if(!ready){ready=true;S=defaultState();render();
+        fs.runTransaction(t=>t.get(ref).then(d=>{if(!d.exists)t.set(ref,defaultState());})).catch(e=>console.warn(e));}
       return;
     }
     S=normalize(snap.data());ready=true;scheduleRender();
@@ -488,6 +512,12 @@ function vSetup(D){
         <label class="stack" style="gap:2px"><span class="label">X Pass indovinato</span><input type="number" step="0.5" id="pt-xpass" value="${esc(C.xpassPts)}"${W()}></label>
       </div>
       <div><button class="btn primary" data-act="save-points"${W()}>Salva punteggi</button></div></div>
+    <div class="card stack"><h3>Backup</h3>
+      <div class="muted">Ogni giorno in cui si gioca viene salvata in automatico una copia della partita. Puoi anche scaricare un file di backup e ricaricarlo.</div>
+      ${mode!=="shared"?"":backups===null?`<div><button class="btn" data-act="bk-load">Mostra i backup salvati</button></div>`:backups.length?`<div class="tbl"><table><thead><tr><th>Giorno</th><th>Partecipanti</th><th>Puntate</th><th></th></tr></thead><tbody>${backups.map(b=>`<tr><td>${esc(b.date)}</td><td class="num">${((b.data.config||{}).players||[]).length}</td><td class="num">${Object.values(b.data.episodes||{}).filter(Boolean).length}</td><td>${armed==="bk-"+b.id?`<span class="confirm"><button class="btn danger" data-act="bk-restore" data-id="${esc(b.id)}"${W()}>Sì, ripristina</button><button class="btn ghost" data-act="disarm">No</button></span>`:`<button class="btn" data-act="arm" data-k="bk-${esc(b.id)}"${W()}>Ripristina</button>`}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">Nessun backup salvato finora.</div>`}
+      <div class="row"><button class="btn" data-act="export">Scarica backup (file)</button>
+        <label class="btn" style="display:inline-block">Carica backup da file<input type="file" id="import-file" accept="application/json,.json" hidden${W()}></label></div>
+      ${importMsg?`<div class="notice">${esc(importMsg)}</div>`:""}</div>
     <div class="card stack"><h3>Nuova partita</h3><div class="muted">Cancella squadre, pronostici e risultati. Partecipanti, cantanti e punteggi restano.</div>
       <div>${armed==="reset"?`<span class="confirm"><span>Sicuro? Non si può annullare.</span><button class="btn danger" data-act="reset"${W()}>Sì, azzera</button><button class="btn ghost" data-act="disarm">Annulla</button></span>`:`<button class="btn danger" data-act="arm" data-k="reset"${W()}>Azzera la partita</button>`}</div></div>
   </section>`;
@@ -554,6 +584,12 @@ function onClick(ev){
   if(a==="ballot-del"){const e=S.episodes[b.dataset.e]||{};const nb=Math.max(1,+e.nb||1);if(nb<2)return;save({episodes:{[b.dataset.e]:{nb:nb-1,more:{[nb]:null}}}});return;}
   if(a==="ep-lock"){const e=S.episodes[b.dataset.e];save({episodes:{[b.dataset.e]:{locked:!(e&&e.locked)}}});return;}
   if(a==="ep-del"){armed=null;save({episodes:{[b.dataset.e]:null}});return;}
+  if(a==="bk-load"){loadBackups();return;}
+  if(a==="export"){
+    const blob=new Blob([JSON.stringify(S,null,1)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);const l=document.createElement("a");l.href=url;l.download="fanta-xfactor-"+gameId+"-"+today()+".json";document.body.appendChild(l);l.click();l.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);return;}
+  if(a==="bk-restore"){armed=null;const bk=(backups||[]).find(x=>x.id===b.dataset.id);if(!bk)return;
+    const n=normalize(bk.data);delete n.backupOf;delete n.backupAt;replaceAll(n);importMsg="Ripristinato il backup del "+bk.date+".";render();return;}
   if(a==="reset"){armed=null;const n=defaultState();n.config=clone(S.config);replaceAll(n);return;}
   if(a==="save-list"){
     const k=b.dataset.k;const ta=document.getElementById("ta-"+k);
@@ -589,6 +625,13 @@ function onChange(ev){
 }
 document.addEventListener("click",onClick);
 document.addEventListener("change",onChange);
+document.addEventListener("change",ev=>{
+  if(ev.target.id!=="import-file"||readOnly)return;
+  const f=ev.target.files&&ev.target.files[0];if(!f)return;
+  f.text().then(t=>{const d=JSON.parse(t);if(!d||!d.config)throw new Error("formato");
+    const n=normalize(d);delete n.backupOf;delete n.backupAt;replaceAll(n);importMsg="Backup caricato dal file "+f.name+".";render();})
+   .catch(()=>{importMsg="Il file non è un backup valido di Fanta X Factor.";render();});
+});
 const h=(location.hash||"").slice(1);if(TABS.some(([k])=>k===h))tab=h;
 boot();
 })();
