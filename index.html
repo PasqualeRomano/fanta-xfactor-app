@@ -302,17 +302,20 @@ function derive(){
     const team=effTeam(p.id).map(s=>{const pl=place(s);return Object.assign({s,pts:rp(pl.pos)},pl);});
     const teamPts=team.reduce((a,t)=>a+t.pts,0);
     const epRows=eps.map(e=>{
-      const items=ballotsOf(e).map(bl=>{
+      // Eliminato indovinato = punti, che sia uscito al ballottaggio o diretto.
+      // Ogni eliminato reale si può "usare" una sola volta per giocatore.
+      const pool=epElims(e).slice();const take=x=>{const i=x?pool.indexOf(x):-1;if(i<0)return false;pool.splice(i,1);return true;};
+      const dr=directOf(e);const items=[];
+      if(dr.nd){const pick=(dr.preds[p.id]||[]).filter(Boolean);
+        const hits=pick.filter(take).length;
+        items.push({k:"D",b:[],e:null,el:pick,bp:0,ep_:hits*(+C.directPts||0),done:dr.elim.some(Boolean)});}
+      ballotsOf(e).forEach(bl=>{
         const pr=bl.preds[p.id]||{};const b=(pr.b||[]).filter(Boolean);
         const ballot=bl.ballot.filter(Boolean);
         const bh=ballot.length?b.filter(x=>ballot.includes(x)).length:0;
-        const eh=!!(bl.elim&&pr.e&&pr.e===bl.elim);
-        return{k:bl.k,b,e:pr.e||null,bp:bh*(+C.ballotPts||0),ep_:eh?(+C.elimPts||0):0,done:ballot.length>0||!!bl.elim};
+        const eh=take(pr.e);
+        items.push({k:bl.k,b,e:pr.e||null,bp:bh*(+C.ballotPts||0),ep_:eh?(+C.elimPts||0):0,done:ballot.length>0||!!bl.elim||eh});
       });
-      const dr=directOf(e);
-      if(dr.nd){const pick=(dr.preds[p.id]||[]).filter(Boolean),real=dr.elim.filter(Boolean);
-        const hits=pick.filter(x=>real.includes(x)).length;
-        items.unshift({k:"D",b:[],e:null,el:pick,bp:0,ep_:hits*(+C.directPts||0),done:real.length>0});}
       return{ep:e,items,bp:items.reduce((a,x)=>a+x.bp,0),ep_:items.reduce((a,x)=>a+x.ep_,0),done:items.some(x=>x.done)};
     });
     const ballotPts=epRows.reduce((a,r)=>a+r.bp,0), elimPts=epRows.reduce((a,r)=>a+r.ep_,0);
@@ -572,6 +575,7 @@ function vRegole(D){
     <li><b>Eliminazione:</b> fra i tuoi due indica chi sarà eliminato, ${fmt(+C.elimPts||0)} punti se indovini.</li>
     <li>Le scelte degli altri restano nascoste finché i pronostici non vengono chiusi o arrivano i risultati: si vede solo chi ha già scelto.</li>
     <li><b>Eliminati diretti:</b> in alcune puntate qualcuno esce direttamente prima del ballottaggio. Si indovina chi, ${fmt(+(C.directPts??2))} punti per ognuno indovinato. In classifica escono prima dell'eliminato del ballottaggio.</li>
+    <li>Per i punti eliminazione conta solo indovinare chi esce: vale anche se il cantante che avevi indicato al ballottaggio esce come eliminato diretto, o viceversa.</li>
     <li>In una puntata possono esserci più ballottaggi: per ognuno si fanno pronostici e si prendono punti allo stesso modo.</li>
     <li><b>Classifica:</b> ogni cantante della tua squadra porta i punti della sua posizione: ${(C.rankPoints||[]).map((v,i)=>`${i+1}° ${fmt(+v)}`).join(", ")}.</li>
     <li>Gli eliminati occupano le ultime posizioni in ordine di eliminazione: il primo eliminato è ultimo.</li>
