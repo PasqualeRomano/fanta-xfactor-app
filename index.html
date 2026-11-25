@@ -157,7 +157,7 @@ const TABS=[["classifica","Classifica"],["xpass","X Pass"],["puntate","Puntate"]
 
 function defaultState(){return{v:1,
   config:{singers:DEF_SINGERS.map((n,i)=>({id:"s"+(i+1),name:n})),xpass:DEF_XPASS.map((n,i)=>({id:"x"+(i+1),name:n})),players:[],
-    rankPoints:[17,14,10,9,8,7,6,5,4,3,2,1,0],finalBonus:[10,7,5,3],ballotPts:1.5,elimPts:2,xpassPts:2,directPts:2},
+    rankPoints:[17,14,10,9,8,7,6,5,4,3,2,1,0],finalBonus:[10,7,5,3],ballotPts:1.5,elimPts:2,xpassPts:2,directPts:2,savedPts:2},
   draft:{order1:[],order3:[],picks:[]},xpassPicks:{},xpassWinner:null,episodes:{},finalPreds:{},finalRank:[]};}
 
 let S=defaultState(), ready=false, mode="connecting", readOnly=false, docRef=null, tab="classifica", openPlayer=null, armed=null;
@@ -267,6 +267,8 @@ function ballotsOf(e){
 // Eliminati diretti: escono prima dei ballottaggi della puntata (ep.nd = quanti, ep.direct = risultati e pronostici).
 function directOf(e){const nd=Math.max(0,+e.nd||0),d=e.direct||{};const fix=a=>Array.from({length:nd},(_,i)=>(a||[])[i]||null);
   const preds={};Object.entries(d.preds||{}).forEach(([k,v])=>preds[k]=fix(v));return{nd,elim:fix(d.elim),preds};}
+// Passa il turno direttamente: ep.saved = {res: cantante salvo, preds: {giocatore: cantante}}.
+function savedOf(e){const d=e.saved||{};return{res:d.res||null,preds:d.preds||{}};}
 const epElims=e=>directOf(e).elim.filter(Boolean).concat(ballotsOf(e).map(b=>b.elim).filter(Boolean));
 function bPatch(eid,k,obj){
   if(k!=="1")return{episodes:{[eid]:{more:{[k]:obj}}}};
@@ -308,24 +310,26 @@ function derive(){
       const dr=directOf(e);const items=[];
       if(dr.nd){const pick=(dr.preds[p.id]||[]).filter(Boolean);
         const hits=pick.filter(take).length;
-        items.push({k:"D",b:[],e:null,el:pick,bp:0,ep_:hits*(+C.directPts||0),done:dr.elim.some(Boolean)});}
+        items.push({k:"D",b:[],e:null,el:pick,bp:0,ep_:hits*(+C.directPts||0),sp:0,done:dr.elim.some(Boolean)});}
       ballotsOf(e).forEach(bl=>{
         const pr=bl.preds[p.id]||{};const b=(pr.b||[]).filter(Boolean);
         const ballot=bl.ballot.filter(Boolean);
         const bh=ballot.length?b.filter(x=>ballot.includes(x)).length:0;
         const eh=take(pr.e);
-        items.push({k:bl.k,b,e:pr.e||null,bp:bh*(+C.ballotPts||0),ep_:eh?(+C.elimPts||0):0,done:ballot.length>0||!!bl.elim||eh});
+        items.push({k:bl.k,b,e:pr.e||null,bp:bh*(+C.ballotPts||0),ep_:eh?(+C.elimPts||0):0,sp:0,done:ballot.length>0||!!bl.elim||eh});
       });
-      return{ep:e,items,bp:items.reduce((a,x)=>a+x.bp,0),ep_:items.reduce((a,x)=>a+x.ep_,0),done:items.some(x=>x.done)};
+      const sv=savedOf(e);const sPick=sv.preds[p.id]||null;
+      items.unshift({k:"S",b:[],e:null,sv:sPick,bp:0,ep_:0,sp:sv.res&&sPick===sv.res?(+C.savedPts||0):0,done:!!sv.res});
+      return{ep:e,items,bp:items.reduce((a,x)=>a+x.bp,0),ep_:items.reduce((a,x)=>a+x.ep_,0),sp:items.reduce((a,x)=>a+x.sp,0),done:items.some(x=>x.done)};
     });
-    const ballotPts=epRows.reduce((a,r)=>a+r.bp,0), elimPts=epRows.reduce((a,r)=>a+r.ep_,0);
+    const ballotPts=epRows.reduce((a,r)=>a+r.bp,0), elimPts=epRows.reduce((a,r)=>a+r.ep_,0), savedPts=epRows.reduce((a,r)=>a+r.sp,0);
     const xpPick=(S.xpassPicks||{})[p.id]||null;
     const xpassPts=S.xpassWinner&&xpPick===S.xpassWinner?(+C.xpassPts||0):0;
     const fp=(S.finalPreds||{})[p.id]||[];
     const finalHits=[0,1,2,3].map(i=>!!(finalRank[i]&&fp[i]===finalRank[i]));
     const finalPts=finalHits.reduce((a,h,i)=>a+(h?(+(C.finalBonus||[])[i]||0):0),0);
-    const total=teamPts+ballotPts+elimPts+xpassPts+finalPts;
-    return{p,team,teamPts,epRows,ballotPts,elimPts,xpassPts,xpPick,fp,finalHits,finalPts,total};
+    const total=teamPts+ballotPts+elimPts+savedPts+xpassPts+finalPts;
+    return{p,team,teamPts,epRows,ballotPts,elimPts,savedPts,xpassPts,xpPick,fp,finalHits,finalPts,total};
   });
   const ranked=scores.slice().sort((a,b)=>b.total-a.total||a.p.name.localeCompare(b.p.name));
   let lastT=null,lastPos=0;ranked.forEach((r,i)=>{if(r.total!==lastT){lastPos=i+1;lastT=r.total;}r.rank=lastPos;});
@@ -371,24 +375,26 @@ function vClassifica(D){
   const board=D.ranked.map(r=>`<button class="lead${r.rank===1&&r.total>0?" p1":""}${r.p.id===me?" me":""}" data-act="player" data-id="${r.p.id}" aria-expanded="${openPlayer===r.p.id}">
       <span class="pos">${r.rank}</span>
       <span><span class="nm">${esc(r.p.name)}</span>
-        <span class="bd"><span>Squadra ${fmt(r.teamPts)}</span><span>Ballottaggi ${fmt(r.ballotPts)}</span><span>Eliminati ${fmt(r.elimPts)}</span><span>X Pass ${fmt(r.xpassPts)}</span><span>Finale ${fmt(r.finalPts)}</span></span>
+        <span class="bd"><span>Squadra ${fmt(r.teamPts)}</span><span>Ballottaggi ${fmt(r.ballotPts)}</span><span>Eliminati ${fmt(r.elimPts)}</span><span>Salvi ${fmt(r.savedPts)}</span><span>X Pass ${fmt(r.xpassPts)}</span><span>Finale ${fmt(r.finalPts)}</span></span>
         <span class="bar"><b style="width:${Math.max(0,r.total/max*100)}%"></b></span></span>
       <span class="score">${fmt(r.total)}<small>punti</small></span></button>
       ${openPlayer===r.p.id?playerDetail(D,r):""}`).join("");
   const epCols=D.eps.map(e=>`<th class="num">P${e.n}</th>`).join("");
-  const grid=D.ranked.map(r=>`<tr class="${r.p.id===me?"me":""}"><td>${r.rank}</td><td><b>${esc(r.p.name)}</b></td>${r.epRows.map(x=>`<td class="num">${x.done?fmt(x.bp+x.ep_):"·"}</td>`).join("")}<td class="num">${fmt(r.teamPts)}</td><td class="num">${fmt(r.xpassPts)}</td><td class="num">${fmt(r.finalPts)}</td><td class="num tot">${fmt(r.total)}</td></tr>`).join("");
+  const grid=D.ranked.map(r=>`<tr class="${r.p.id===me?"me":""}"><td>${r.rank}</td><td><b>${esc(r.p.name)}</b></td>${r.epRows.map(x=>`<td class="num">${x.done?fmt(x.bp+x.ep_+x.sp):"·"}</td>`).join("")}<td class="num">${fmt(r.teamPts)}</td><td class="num">${fmt(r.xpassPts)}</td><td class="num">${fmt(r.finalPts)}</td><td class="num tot">${fmt(r.total)}</td></tr>`).join("");
   return `<section class="view">
     <div class="stack"><h2>Classifica</h2><div class="muted">Tocca un nome per vedere la sua griglia punteggio.</div></div>
     <div class="board">${board}</div>
     <div class="stack"><h2>Griglia punteggi</h2>
-      <div class="muted">Colonne P1, P2…: punti ballottaggio + eliminazione di ogni puntata. Squadra: punti classifica dei cantanti (per chi è ancora in gara contano i punti minimi garantiti).</div>
+      <div class="muted">Colonne P1, P2…: punti ballottaggio, eliminazione e cantante salvo di ogni puntata. Squadra: punti classifica dei cantanti (per chi è ancora in gara contano i punti minimi garantiti).</div>
       <div class="tbl"><table><thead><tr><th>#</th><th>Giocatore</th>${epCols}<th class="num">Squadra</th><th class="num">X Pass</th><th class="num">Finale</th><th class="num">Totale</th></tr></thead><tbody>${grid}</tbody></table></div></div>
     ${vSingers(D)}
   </section>`;
 }
 function playerDetail(D,r){
   const team=r.team.length?r.team.map(t=>`<tr><td>${esc(D.nameOf(t.s))}${t.s===S.xpassWinner?` <span class="pill final">X Pass</span>`:""}</td><td><span class="pill ${t.state}">${t.state==="in"?"in gara":t.state==="out"?"eliminato":"finale"}</span></td><td class="num">${t.state==="in"?"≥ ":""}${t.pos}°</td><td class="num">${fmt(t.pts)}</td></tr>`).join(""):`<tr><td colspan="4" class="muted">Squadra non ancora scelta</td></tr>`;
-  const eps=r.epRows.length?r.epRows.flatMap(row=>row.items.map(x=>Object.assign({ep:row.ep,multi:row.items.filter(i=>i.k!=="D").length>1},x))).map(x=>{const h=hidden(r.p.id,x.done||x.ep.locked);return `<tr><td>Puntata ${x.ep.n}${x.k==="D"?" · eliminati diretti":x.multi?` · ballottaggio ${x.k}`:""}</td><td>${x.k==="D"?"<span class=muted>—</span>":h?hidTag(x.b.length):x.b.length?x.b.map(s=>esc(D.nameOf(s))).join(", "):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.bp):"·"}</td><td>${x.k==="D"?(h?hidTag(x.el.length>0):x.el.length?x.el.map(s=>esc(D.nameOf(s))).join(", "):"<span class=muted>—</span>"):h?hidTag(!!x.e):x.e?esc(D.nameOf(x.e)):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.ep_):"·"}</td></tr>`;}).join(""):`<tr><td colspan="5" class="muted">Nessuna puntata ancora</td></tr>`;
+  const eps=r.epRows.length?r.epRows.flatMap(row=>row.items.map(x=>Object.assign({ep:row.ep,multi:row.items.filter(i=>i.k!=="D"&&i.k!=="S").length>1},x))).filter(x=>x.k!=="S"||x.sv||x.done).map(x=>{const h=hidden(r.p.id,x.done||x.ep.locked);
+    if(x.k==="S")return `<tr><td>Puntata ${x.ep.n} · passa il turno</td><td colspan="3">${h?hidTag(!!x.sv):x.sv?esc(D.nameOf(x.sv)):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.sp):"·"}</td></tr>`;
+    return `<tr><td>Puntata ${x.ep.n}${x.k==="D"?" · eliminati diretti":x.multi?` · ballottaggio ${x.k}`:""}</td><td>${x.k==="D"?"<span class=muted>—</span>":h?hidTag(x.b.length):x.b.length?x.b.map(s=>esc(D.nameOf(s))).join(", "):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.bp):"·"}</td><td>${x.k==="D"?(h?hidTag(x.el.length>0):x.el.length?x.el.map(s=>esc(D.nameOf(s))).join(", "):"<span class=muted>—</span>"):h?hidTag(!!x.e):x.e?esc(D.nameOf(x.e)):"<span class=muted>—</span>"}</td><td class="num">${x.done?fmt(x.ep_):"·"}</td></tr>`;}).join(""):`<tr><td colspan="5" class="muted">Nessuna puntata ancora</td></tr>`;
   return `<div class="card stack" style="margin-bottom:6px">
     <div class="grid2">
       <div class="stack"><span class="label">Squadra</span><div class="tbl"><table><thead><tr><th>Cantante</th><th>Stato</th><th class="num">Pos.</th><th class="num">Punti</th></tr></thead><tbody>${team}</tbody></table></div></div>
@@ -492,15 +498,25 @@ function vPuntate(D){
         <div class="stack"><span class="label">Pronostici · chi esce direttamente prima del ballottaggio (${fmt(pts)} pt per ognuno indovinato)</span>
           <div class="dform"><span class="h">Giocatore</span><span class="h">Eliminati diretti</span><span class="h" style="text-align:right">Punti</span>${dp}</div></div>
         <div class="stack"><span class="label">Risultato · eliminati diretti, in ordine di uscita</span><div class="dsel">${res}</div></div></div>`;}
+    const sv=savedOf(e);let saved="";{const act0=D.activeAt(e.n);const pts=+D.C.savedPts||0;
+      const sp=D.players.map(p=>{const pick=sv.preds[p.id]||"";const r=D.scores.find(x=>x.p.id===p.id).epRows.find(x=>x.ep.id===e.id).items.find(x=>x.k==="S");
+        const dis=(lock||readOnly)?" disabled":"";
+        if(hidden(p.id,lock||(r&&r.done)))return `<div class="pn">${esc(p.name)}</div>${hidTag(!!pick)}<span class="num" style="text-align:right">·</span>`;
+        return `<div class="pn">${esc(p.name)}</div><select data-act="sav-pred" data-e="${e.id}" data-p="${p.id}" aria-label="${esc(p.name)} passa il turno direttamente"${dis}>${options(act0,pick,[],D,"Chi passa il turno")}</select><span class="num" style="text-align:right">${r&&r.done?`<b>${fmt(r.sp)}</b>`:"·"}</span>`;}).join("");
+      saved=`<div class="stack" style="border-top:1px solid var(--line);padding-top:12px">
+        <h3>Passa il turno direttamente</h3>
+        <div class="stack"><span class="label">Pronostici · chi passa il turno direttamente, salvo subito (${fmt(pts)} pt se indovini)</span>
+          <div class="dform"><span class="h">Giocatore</span><span class="h">Cantante salvo</span><span class="h" style="text-align:right">Punti</span>${sp}</div></div>
+        <div class="stack"><span class="label">Risultato · chi ha passato il turno direttamente</span><div class="dsel"><select data-act="sav-res" data-e="${e.id}" aria-label="Cantante che passa il turno direttamente"${W()}>${options(act0,sv.res||"",[],D,"Cantante salvo")}</select></div></div></div>`;}
     const ndSel=`<label class="row" style="gap:6px"><span class="label">Eliminati diretti</span><select data-act="ep-nd" data-e="${e.id}" style="width:auto"${W()}>${[0,1,2,3].map(n=>`<option value="${n}"${n===dr.nd?" selected":""}>${n}</option>`).join("")}</select></label>`;
     return `<div class="card stack">
       <div class="row" style="justify-content:space-between"><div class="row"><h2>Puntata ${e.n}</h2>${lock?`<span class="pill lock">Pronostici chiusi</span>`:`<span class="pill in">Pronostici aperti</span>`}${multi?`<span class="pill final">${bls.length} ballottaggi</span>`:""}</div>
         <div class="row"><button class="btn" data-act="ep-lock" data-e="${e.id}"${W()}>${lock?"Riapri pronostici":"Chiudi pronostici"}</button>
         ${armed==="del-"+e.id?`<span class="confirm"><span class="muted">Eliminare la puntata?</span><button class="btn danger" data-act="ep-del" data-e="${e.id}"${W()}>Sì, elimina</button><button class="btn ghost" data-act="disarm">No</button></span>`:`<button class="btn ghost" data-act="arm" data-k="del-${e.id}"${W()}>Elimina</button>`}</div></div>
       <div class="row">${ndSel}</div>
-      ${direct}${sections}
+      ${saved}${direct}${sections}
       <div><button class="btn" data-act="ballot-add" data-e="${e.id}"${W()}>Aggiungi ballottaggio ${bls.length+1}</button></div></div>`;}).join("");
-  return `<section class="view"><div class="stack"><h2>Puntate live</h2><div class="muted">Prima della live ognuno indica, per ogni ballottaggio, i 2 cantanti che ci andranno e chi tra i due sarà eliminato. Se in una puntata ci sono più ballottaggi, aggiungili con il tasto in fondo alla puntata: gli eliminati escono in classifica nell'ordine dei ballottaggi. Le scelte degli altri restano nascoste: si vede solo se le hanno già fatte. Quando chiudi i pronostici, o inserisci i risultati, diventano visibili a tutti.</div></div>
+  return `<section class="view"><div class="stack"><h2>Puntate live</h2><div class="muted">Prima della live ognuno indica chi passa il turno direttamente e, per ogni ballottaggio, i 2 cantanti che ci andranno e chi tra i due sarà eliminato. Se in una puntata ci sono più ballottaggi, aggiungili con il tasto in fondo alla puntata: gli eliminati escono in classifica nell'ordine dei ballottaggi. Le scelte degli altri restano nascoste: si vede solo se le hanno già fatte. Quando chiudi i pronostici, o inserisci i risultati, diventano visibili a tutti.</div></div>
     ${meNotice(D)}<div>${add}</div>${cards||`<div class="empty">Nessuna puntata ancora. Aggiungi la prima quando partono le live.</div>`}</section>`;
 }
 function vFinale(D){
@@ -542,6 +558,7 @@ function vSetup(D){
         <label class="stack" style="gap:2px"><span class="label">Per cantante al ballottaggio</span><input type="number" step="0.5" id="pt-ballot" value="${esc(C.ballotPts)}"${W()}></label>
         <label class="stack" style="gap:2px"><span class="label">Eliminato indovinato</span><input type="number" step="0.5" id="pt-elim" value="${esc(C.elimPts)}"${W()}></label>
         <label class="stack" style="gap:2px"><span class="label">Eliminato diretto indovinato</span><input type="number" step="0.5" id="pt-direct" value="${esc(C.directPts??2)}"${W()}></label>
+        <label class="stack" style="gap:2px"><span class="label">Passa il turno indovinato</span><input type="number" step="0.5" id="pt-saved" value="${esc(C.savedPts??2)}"${W()}></label>
         <label class="stack" style="gap:2px"><span class="label">X Pass indovinato</span><input type="number" step="0.5" id="pt-xpass" value="${esc(C.xpassPts)}"${W()}></label>
       </div>
       <div><button class="btn primary" data-act="save-points"${W()}>Salva punteggi</button></div></div>
@@ -575,6 +592,7 @@ function vRegole(D){
     <li><b>Eliminazione:</b> fra i tuoi due indica chi sarà eliminato, ${fmt(+C.elimPts||0)} punti se indovini.</li>
     <li>Le scelte degli altri restano nascoste finché i pronostici non vengono chiusi o arrivano i risultati: si vede solo chi ha già scelto.</li>
     <li><b>Eliminati diretti:</b> in alcune puntate qualcuno esce direttamente prima del ballottaggio. Si indovina chi, ${fmt(+(C.directPts??2))} punti per ognuno indovinato. In classifica escono prima dell'eliminato del ballottaggio.</li>
+    <li><b>Passa il turno:</b> in ogni puntata indovina il cantante che passa il turno direttamente (salvo subito), ${fmt(+(C.savedPts??2))} punti se indovini.</li>
     <li>Per i punti eliminazione conta solo indovinare chi esce: vale anche se il cantante che avevi indicato al ballottaggio esce come eliminato diretto, o viceversa.</li>
     <li>In una puntata possono esserci più ballottaggi: per ognuno si fanno pronostici e si prendono punti allo stesso modo.</li>
     <li><b>Classifica:</b> ogni cantante della tua squadra porta i punti della sua posizione: ${(C.rankPoints||[]).map((v,i)=>`${i+1}° ${fmt(+v)}`).join(", ")}.</li>
@@ -637,7 +655,7 @@ function onClick(ev){
   }
   if(a==="save-points"){
     const num=id=>{const v=parseFloat(document.getElementById(id).value);return isFinite(v)?v:0;};
-    save({config:{rankPoints:(S.config.rankPoints||[]).map((_,i)=>num("rp-"+i)),finalBonus:[0,1,2,3].map(i=>num("fb-"+i)),ballotPts:num("pt-ballot"),elimPts:num("pt-elim"),xpassPts:num("pt-xpass"),directPts:num("pt-direct")}});return;
+    save({config:{rankPoints:(S.config.rankPoints||[]).map((_,i)=>num("rp-"+i)),finalBonus:[0,1,2,3].map(i=>num("fb-"+i)),ballotPts:num("pt-ballot"),elimPts:num("pt-elim"),xpassPts:num("pt-xpass"),directPts:num("pt-direct"),savedPts:num("pt-saved")}});return;
   }
 }
 function onChange(ev){
@@ -646,6 +664,8 @@ function onChange(ev){
   const a=t.dataset.act;if(!a||readOnly)return;const v=t.value||null;const d=t.dataset;
   if(a==="xp-pick"){save({xpassPicks:{[d.p]:v}});return;}
   if(a==="xp-winner"){save({xpassWinner:v});return;}
+  if(a==="sav-pred"){save({episodes:{[d.e]:{saved:{preds:{[d.p]:v}}}}});return;}
+  if(a==="sav-res"){save({episodes:{[d.e]:{saved:{res:v}}}});return;}
   if(a==="ep-nd"){save({episodes:{[d.e]:{nd:+t.value||0}}});return;}
   if(a==="dir-pred"||a==="dir-res"){const dr=directOf(S.episodes[d.e]||{});
     if(a==="dir-pred"){const arr=(dr.preds[d.p]||Array(dr.nd).fill(null)).slice();arr[+d.i]=v;save({episodes:{[d.e]:{direct:{preds:{[d.p]:arr}}}}});return;}
